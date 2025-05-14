@@ -1,7 +1,5 @@
-const fetch = require("node-fetch");
-
 exports.handler = async function(event, context) {
-    if (event.httpMethod !== "POST") {
+    if (event.httpMethod !== "POST")  {
         return { statusCode: 405, body: "Method Not Allowed" };
     }
 
@@ -9,6 +7,7 @@ exports.handler = async function(event, context) {
     const AKOOL_BEARER_TOKEN = process.env.AKOOL_BEARER_TOKEN;
 
     if (!AKOOL_BEARER_TOKEN) {
+        console.error("Akool API token environment variable is not configured.");
         return { statusCode: 500, body: JSON.stringify({ error: "Akool API token is not configured." }) };
     }
 
@@ -23,13 +22,13 @@ exports.handler = async function(event, context) {
                 "Authorization": `Bearer ${AKOOL_BEARER_TOKEN}`,
                 "Content-Type": "application/json"
             },
-            body: JSON.stringify({ avatar_id })
+            body: JSON.stringify({ avatar_id }) 
         });
 
         const data = await response.json();
 
         if (!response.ok) {
-            console.error("Akool API Error (create-session):", data);
+            console.error("Akool API Error (create-session):", JSON.stringify(data));
             return { statusCode: response.status, body: JSON.stringify(data) };
         }
 
@@ -39,11 +38,10 @@ exports.handler = async function(event, context) {
             body: JSON.stringify(data)
         };
     } catch (error) {
-        console.error("Error creating Akool session:", error);
+        console.error("Error creating Akool session:", error.toString());
         return {
             statusCode: 500,
             body: JSON.stringify({ error: "Failed to create Akool session.", details: error.message })
         };
     }
 };
-
