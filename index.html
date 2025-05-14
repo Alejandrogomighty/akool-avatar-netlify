@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Akool Avatar</title>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden; /* Hide scrollbars if content overflows */
+            background-color: #000000; /* Black background for the page */
+        }
+        #akool-avatar-display-container {
+            width: 100vw; /* 100% of viewport width */
+            height: 100vh; /* 100% of viewport height */
+            display: flex;
+            justify-content: center; /* Center video horizontally */
+            align-items: center; /* Center video vertically */
+            background-color: #000000; /* Black background for the container */
+        }
+        #akool-avatar-display-container video {
+            /* Adjust object-fit if aspect ratio is an issue, e.g., object-fit: cover; */
+        }
+    </style>
+</head>
+<body>
+    <div id="akool-avatar-display-container">
+        <!-- The Agora SDK will inject the video player here -->
+    </div>
+
+    <script src="https://download.agora.io/sdk/release/AgoraRTC_N-4.20.2.js"></script>
+    <script>
+        document.addEventListener("DOMContentLoaded", function()  {
+            // ** IMPORTANT: Ensure these values are strings, enclosed in quotes **
+            const AKOOL_API_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjY4MDhmMGIwZjNjZWUyOWFiZDBkN2U5MCIsInVpZCI6NjI5MzYzNywiZW1haWwiOiJ0aW1lc2F2ZXJodWJAZ21haWwuY29tIiwiY3JlZGVudGlhbElkIjoiNjgxNjI5Mjk2YjBlOWQ5YjVkNWYwMThjIiwiZmlyc3ROYW1lIjoiQXBwb2ludG1lbnRzc2V0dGVyIiwidGVhbV9pZCI6IjY4MDhmMGIwODI3OWVmNGQ4YTcyMjExOSIsInJvbGVfYWN0aW9ucyI6WzEsMiwzLDQsNSw2LDcsOCw5XSwiaXNfZGVmYXVsdF90ZWFtIjp0cnVlLCJmcm9tIjoidG9PIiwidHlwZSI6InVzZXIiLCJpYXQiOjE3NDY0Mjc1ODYsImV4cCI6MjA1NzQ2NzU4Nn0.hnh6csPMplom_Qk36Yf99DsTLQmlo3z9hesuDrI0Q-A";
+            const AVATAR_ID = "dvp_Tristan_cloth2_1080P";
+            
+            const AKOOL_SESSION_CREATE_URL = "https://openapi.akool.com/api/open/v4/liveAvatar/session/create";
+            const USER_ID_FOR_AGORA_JOIN = "user_client_" + Math.random() .toString(36).substring(7);
+
+            const videoContainer = document.getElementById("akool-avatar-display-container");
+
+            function displayErrorOnPage(message) {
+                if (videoContainer) {
+                    const errorElement = document.createElement('p');
+                    errorElement.style.color = 'red';
+                    errorElement.style.textAlign = 'center';
+                    errorElement.style.fontWeight = 'bold';
+                    errorElement.textContent = message;
+                    videoContainer.innerHTML = ''; // Clear previous content
+                    videoContainer.appendChild(errorElement);
+                }
+                console.error(message);
+            }
+
+            async function initializeAvatar() {
+                if (typeof AgoraRTC === 'undefined') {
+                    displayErrorOnPage("AgoraRTC SDK could not be loaded. Please check your internet connection and script inclusions.");
+                    return;
+                }
+
+                const agoraClient = AgoraRTC.createClient({ mode: "rtc", codec: "vp8" });
+
+                agoraClient.on("user-published", async (user, mediaType) => {
+                    console.log("Agora: User published - UID:", user.uid, "MediaType:", mediaType);
+                    try {
+                        await agoraClient.subscribe(user, mediaType);
+                        console.log("Agora: Subscribed to remote user:", user.uid);
+                        if (mediaType === "video") {
+                            while (videoContainer.firstChild) {
+                                videoContainer.removeChild(videoContainer.firstChild);
+                            }
+                            const videoPlayerElement = document.createElement("div");
+                            videoPlayerElement.id = `video-player-${user.uid}`;
+                            videoPlayerElement.style.width = "100%";
+                            videoPlayerElement.style.height = "100%";
+                            videoContainer.appendChild(videoPlayerElement);
+                            user.videoTrack.play(videoPlayerElement.id);
+                            console.log("Playing remote video stream.");
+                        }
+                        if (mediaType === "audio") {
+                            user.audioTrack.play();
+                            console.log("Playing remote audio stream.");
+                        }
+                    } catch (e) {
+                        console.error("Error subscribing to or playing remote stream:", e);
+                        displayErrorOnPage("Error handling remote stream. Check console.");
+                    }
+                });
+
+                agoraClient.on("user-unpublished", (user, mediaType) => {
+                    console.log("Agora: User unpublished - UID:", user.uid, "MediaType:", mediaType);
+                    const playerElement = document.getElementById(`video-player-${user.uid}`);
+                    if (playerElement) {
+                        videoContainer.removeChild(playerElement);
+                    }
+                });
+                
+                agoraClient.on("connection-state-change", (curState, prevState, reason) => {
+                    console.log("Agora connection state change: " + curState + ", " + prevState + ", " + reason);
+                    if (curState === "DISCONNECTED" || curState === "FAILED") {
+                        displayErrorOnPage("Disconnected from Agora. Please check your connection or try again.");
+                    }
+                });
+
+                try {
+                    console.log("Attempting to create Akool session...");
+                    const sessionResponse = await fetch(AKOOL_SESSION_CREATE_URL, {
+                        method: "POST",
+                        headers: {
+                            "Authorization": `Bearer ${AKOOL_API_TOKEN}`,
+                            "Content-Type": "application/json"
+                        },
+                        body: JSON.stringify({ avatar_id: AVATAR_ID })
+                    });
+
+                    if (!sessionResponse.ok) {
+                        const errorText = await sessionResponse.text();
+                        console.error("Akool API request failed:", sessionResponse.status, errorText);
+                        displayErrorOnPage(`Failed to create Akool session. Status: ${sessionResponse.status}. ${errorText}`);
+                        return;
+                    }
+
+                    const sessionData = await sessionResponse.json();
+
+                    if (sessionData.code !== 1000 || !sessionData.data || !sessionData.data.credentials) {
+                        console.error("Error creating Akool session:", sessionData.msg || "Unknown error from Akool API", sessionData);
+                        displayErrorOnPage("Error creating Akool session: " + (sessionData.msg || "Unknown Akool API error. Please check API token and Avatar ID."));
+                        return;
+                    }
+
+                    const agoraCredentials = sessionData.data.credentials;
+                    console.log("Akool session created successfully. Agora credentials received.");
+
+                    await agoraClient.join(agoraCredentials.agora_app_id, agoraCredentials.agora_channel, agoraCredentials.agora_token, USER_ID_FOR_AGORA_JOIN);
+                    console.log("Successfully joined Agora channel as user:", USER_ID_FOR_AGORA_JOIN);
+
+                } catch (error) {
+                    console.error("Error in avatar initialization process:", error);
+                    displayErrorOnPage("An error occurred during avatar initialization. Check console.");
+                }
+            }
+
+            initializeAvatar();
+        });
+    </script>
+</body>
+</html>
