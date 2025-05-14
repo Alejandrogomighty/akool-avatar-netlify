@@ -41,6 +41,7 @@
 
     <script>
         const AKOOL_AVATAR_ID = "dvp_Tristan_cloth2_1080P"; // User provided Avatar ID
+        const GREETING_DELAY_MS = 3000; // 3 seconds delay before sending greeting
         let akoolSessionId = null;
         let agoraClient = null;
         let remoteUser = null;
@@ -129,7 +130,9 @@
                         remoteVideoTrack.play(playerContainer);
                         addLog("Avatar video stream playing.");
                         setStatus("Avatar is live!");
-                        triggerGreeting(); 
+                        // Wait for a few seconds before sending the greeting
+                        addLog(`Waiting ${GREETING_DELAY_MS / 1000} seconds before sending greeting...`);
+                        setTimeout(triggerGreeting, GREETING_DELAY_MS); 
                     }
                     if (mediaType === "audio") {
                         const remoteAudioTrack = user.audioTrack;
@@ -171,8 +174,8 @@
                 if (!response.ok) {
                     throw new Error(`Netlify function error (HTTP ${response.status}): ${data.error || data.msg || response.statusText || "Unknown error from function"}`);
                 }
-                if (data.code !== 1000) {
-                     throw new Error(`Akool API Error (code ${data.code}): ${data.msg || "Unknown Akool API error when pushing message"}`);
+                if (data.code !== 1000 && data.status !== 200) { // Akool sometimes returns status 200 for success on push
+                     throw new Error(`Akool API Error (code ${data.code || data.status}): ${data.msg || "Unknown Akool API error when pushing message"}`);
                 }
                 addLog("Message pushed to avatar successfully.");
                 setStatus("Greeting sent to avatar.");
@@ -190,7 +193,7 @@
                 greetingText = `Hello, ${name}! Welcome.`;
             }
             
-            addLog(`Preparing to greet user: ${name || "guest"}`);
+            addLog(`Preparing to greet user: ${name || "guest"}`)
             pushMessageToAvatar(greetingText);
         }
 
