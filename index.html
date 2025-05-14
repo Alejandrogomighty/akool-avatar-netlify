@@ -24,8 +24,9 @@
             overflow-y: auto; 
             font-size: 0.9em; 
         }
-        .log-entry { margin-bottom: 5px; }
+        .log-entry { margin-bottom: 5px; word-break: break-all; }
         .log-error { color: red; }
+        #status-messages { margin-bottom: 10px; font-weight: bold; }
     </style>
 </head>
 <body>
@@ -35,7 +36,7 @@
     <!-- 2. Container for the avatar -->
     <div id="avatar-container"></div>
 
-    <div id="status-messages"></div>
+    <div id="status-messages">Attempting to load avatar...</div>
     <div id="logs"><strong>Logs:</strong><br></div>
 
     <script>
@@ -48,21 +49,24 @@
         const statusContainer = document.getElementById("status-messages");
 
         function addLog(message, isError = false) {
-            console.log(message);
+            const messageString = (typeof message === "object") ? JSON.stringify(message) : message;
+            console.log(messageString);
             const logEntry = document.createElement("div");
             logEntry.className = "log-entry";
             if (isError) {
                 logEntry.classList.add("log-error");
-                console.error(message);
+                console.error(messageString);
             }
-            logEntry.textContent = `[${new Date().toLocaleTimeString()}] ${typeof message === "object" ? JSON.stringify(message) : message}`;
+            logEntry.textContent = `[${new Date().toLocaleTimeString()}] ${messageString}`;
             logContainer.appendChild(logEntry);
             logContainer.scrollTop = logContainer.scrollHeight;
         }
 
-        function setStatus(message) {
-            addLog(message);
+        function setStatus(message, isError = false) {
+            addLog(message, isError);
             statusContainer.textContent = message;
+            if(isError) statusContainer.style.color = "red";
+            else statusContainer.style.color = "#333";
         }
 
         async function createAvatarSession() {
@@ -74,24 +78,36 @@
                     body: JSON.stringify({ avatar_id: AKOOL_AVATAR_ID })
                 });
                 const data = await response.json();
-                if (!response.ok) {
-                    throw new Error(`Failed to create session: ${data.error || response.statusText}`);
+                
+                addLog("Raw response from /create-avatar-session:");
+                addLog(data);
+
+                if (!response.ok) { // Checks if HTTP status is 2xx from Netlify function
+                    throw new Error(`Netlify function error (HTTP ${response.status}): ${data.error || data.msg || response.statusText || "Unknown error from function"}`);
                 }
-                addLog("Avatar session created successfully.");
-                addLog(data); 
-                akoolSessionId = data.data._id; // Assuming _id is the session_id from Akool API response
-                return data.data.credentials; // Assuming credentials are in data.data.credentials
+
+                // Akool specific success check (code 1000)
+                if (data.code !== 1000) {
+                    throw new Error(`Akool API Error (code ${data.code}): ${data.msg || "Unknown Akool API error"}`);
+                }
+
+                if (!data.data || !data.data._id || !data.data.credentials) {
+                    throw new Error("Akool API response missing expected data structure (session ID or credentials).");
+                }
+
+                addLog("Avatar session created successfully via Akool API.");
+                akoolSessionId = data.data._id;
+                return data.data.credentials;
+
             } catch (error) {
-                addLog(`Error creating avatar session: ${error.message}`, true);
-                setStatus(`Error: Could not create avatar session. ${error.message}`);
+                setStatus(`Error: Could not create avatar session. ${error.message}`, true);
                 return null;
             }
         }
 
         async function initializeAgora(credentials) {
             if (!credentials || !credentials.agora_app_id || !credentials.agora_token || !credentials.agora_channel || !credentials.agora_uid) {
-                addLog("Agora credentials missing or incomplete.", true);
-                setStatus("Error: Agora credentials missing.");
+                setStatus("Error: Agora credentials missing or incomplete.", true);
                 return false;
             }
             setStatus("Initializing Agora...");
@@ -113,7 +129,6 @@
                         remoteVideoTrack.play(playerContainer);
                         addLog("Avatar video stream playing.");
                         setStatus("Avatar is live!");
-                        // Now that avatar is streaming, make it speak
                         triggerGreeting(); 
                     }
                     if (mediaType === "audio") {
@@ -132,8 +147,7 @@
                 });
                 return true;
             } catch (error) {
-                addLog(`Agora join/subscribe error: ${error.message}`, true);
-                setStatus(`Error: Could not connect to Agora. ${error.message}`);
+                setStatus(`Error: Could not connect to Agora. ${error.message}`, true);
                 return false;
             }
         }
@@ -151,34 +165,32 @@
                     body: JSON.stringify({ session_id: akoolSessionId, text: text, type: "text", interrupt: false })
                 });
                 const data = await response.json();
+                addLog("Raw response from /push-avatar-message:");
+                addLog(data);
+
                 if (!response.ok) {
-                    throw new Error(`Failed to push message: ${data.error || response.statusText}`);
+                    throw new Error(`Netlify function error (HTTP ${response.status}): ${data.error || data.msg || response.statusText || "Unknown error from function"}`);
+                }
+                if (data.code !== 1000) {
+                     throw new Error(`Akool API Error (code ${data.code}): ${data.msg || "Unknown Akool API error when pushing message"}`);
                 }
                 addLog("Message pushed to avatar successfully.");
                 setStatus("Greeting sent to avatar.");
             } catch (error) {
-                addLog(`Error pushing message to avatar: ${error.message}`, true);
-                setStatus(`Error: Could not send greeting. ${error.message}`);
+                setStatus(`Error: Could not send greeting. ${error.message}`, true);
             }
         }
 
         function triggerGreeting() {
             const urlParams = new URLSearchParams(window.location.search);
             const name = urlParams.get("name");
-            const email = urlParams.get("email"); // Email and message are not used in greeting for now, but available
-            const message = urlParams.get("message");
-
+            
             let greetingText = "Hello there! Welcome.";
             if (name) {
                 greetingText = `Hello, ${name}! Welcome.`;
             }
-            // You can customize the greeting further using email or message if needed.
-            // For now, we will use the name for the greeting.
-            // The original request was to pass name, email and message to the avatar, and greet by name.
-            // The `message` from the form could be spoken after the initial greeting if desired.
-            // For example: pushMessageToAvatar(`I received your message: ${message}`);
             
-            addLog(`Preparing to greet user: ${name || "guest"}`)
+            addLog(`Preparing to greet user: ${name || "guest"}`);
             pushMessageToAvatar(greetingText);
         }
 
@@ -187,19 +199,22 @@
             const agoraCredentials = await createAvatarSession();
             if (agoraCredentials) {
                 await initializeAgora(agoraCredentials);
-                // Greeting is now triggered after video stream starts in initializeAgora
             } else {
-                setStatus("Failed to initialize avatar. Please check logs.");
+                // Status already set by createAvatarSession on failure
+                addLog("Avatar initialization failed because session creation or credential retrieval failed.", true);
             }
         }
 
         window.onload = main;
 
-        // Optional: Clean up Agora connection on page unload
         window.onbeforeunload = async () => {
             if (agoraClient) {
-                await agoraClient.leave();
-                addLog("Left Agora channel.");
+                try {
+                    await agoraClient.leave();
+                    addLog("Left Agora channel.");
+                } catch (e) {
+                    addLog("Error leaving Agora channel: " + e.message, true);
+                }
             }
         };
 
