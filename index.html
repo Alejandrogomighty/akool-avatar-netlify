@@ -2,150 +2,207 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Akool Avatar</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Akool Streaming Avatar</title>
+    <!-- 1. Include Agora Web SDK (ensure this is the correct/latest version recommended by Akool/Agora) -->
+    <script src="https://download.agora.io/sdk/release/AgoraRTC_N.js"></script>
     <style>
-        body, html {
-            margin: 0;
-            padding: 0;
-            width: 100%;
-            height: 100%;
-            overflow: hidden; /* Hide scrollbars if content overflows */
-            background-color: #000000; /* Black background for the page */
+        body { font-family: sans-serif; margin: 20px; background-color: #f4f4f4; color: #333; }
+        #avatar-container {
+            width: 400px;
+            height: 300px;
+            border: 1px solid #ccc;
+            margin-bottom: 20px;
+            background-color: #000;
         }
-        #akool-avatar-display-container {
-            width: 100vw; /* 100% of viewport width */
-            height: 100vh; /* 100% of viewport height */
-            display: flex;
-            justify-content: center; /* Center video horizontally */
-            align-items: center; /* Center video vertically */
-            background-color: #000000; /* Black background for the container */
+        #logs { 
+            margin-top: 20px; 
+            padding: 10px; 
+            border: 1px solid #eee; 
+            background-color: #fff; 
+            max-height: 200px; 
+            overflow-y: auto; 
+            font-size: 0.9em; 
         }
-        #akool-avatar-display-container video {
-            /* Adjust object-fit if aspect ratio is an issue, e.g., object-fit: cover; */
-        }
+        .log-entry { margin-bottom: 5px; }
+        .log-error { color: red; }
     </style>
 </head>
 <body>
-    <div id="akool-avatar-display-container">
-        <!-- The Agora SDK will inject the video player here -->
-    </div>
+    <h1>Akool Streaming Avatar</h1>
+    <p>Welcome! Your avatar should appear below and greet you shortly.</p>
 
-    <script src="https://download.agora.io/sdk/release/AgoraRTC_N-4.20.2.js"></script>
+    <!-- 2. Container for the avatar -->
+    <div id="avatar-container"></div>
+
+    <div id="status-messages"></div>
+    <div id="logs"><strong>Logs:</strong><br></div>
+
     <script>
-        document.addEventListener("DOMContentLoaded", function()  {
-            // ** IMPORTANT: Ensure these values are strings, enclosed in quotes **
-            const AKOOL_API_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjY4MDhmMGIwZjNjZWUyOWFiZDBkN2U5MCIsInVpZCI6NjI5MzYzNywiZW1haWwiOiJ0aW1lc2F2ZXJodWJAZ21haWwuY29tIiwiY3JlZGVudGlhbElkIjoiNjgxNjI5Mjk2YjBlOWQ5YjVkNWYwMThjIiwiZmlyc3ROYW1lIjoiQXBwb2ludG1lbnRzc2V0dGVyIiwidGVhbV9pZCI6IjY4MDhmMGIwODI3OWVmNGQ4YTcyMjExOSIsInJvbGVfYWN0aW9ucyI6WzEsMiwzLDQsNSw2LDcsOCw5XSwiaXNfZGVmYXVsdF90ZWFtIjp0cnVlLCJmcm9tIjoidG9PIiwidHlwZSI6InVzZXIiLCJpYXQiOjE3NDY0Mjc1ODYsImV4cCI6MjA1NzQ2NzU4Nn0.hnh6csPMplom_Qk36Yf99DsTLQmlo3z9hesuDrI0Q-A";
-            const AVATAR_ID = "dvp_Tristan_cloth2_1080P";
-            
-            const AKOOL_SESSION_CREATE_URL = "https://openapi.akool.com/api/open/v4/liveAvatar/session/create";
-            const USER_ID_FOR_AGORA_JOIN = "user_client_" + Math.random() .toString(36).substring(7);
+        const AKOOL_AVATAR_ID = "dvp_Tristan_cloth2_1080P"; // User provided Avatar ID
+        let akoolSessionId = null;
+        let agoraClient = null;
+        let remoteUser = null;
 
-            const videoContainer = document.getElementById("akool-avatar-display-container");
+        const logContainer = document.getElementById("logs");
+        const statusContainer = document.getElementById("status-messages");
 
-            function displayErrorOnPage(message) {
-                if (videoContainer) {
-                    const errorElement = document.createElement('p');
-                    errorElement.style.color = 'red';
-                    errorElement.style.textAlign = 'center';
-                    errorElement.style.fontWeight = 'bold';
-                    errorElement.textContent = message;
-                    videoContainer.innerHTML = ''; // Clear previous content
-                    videoContainer.appendChild(errorElement);
-                }
+        function addLog(message, isError = false) {
+            console.log(message);
+            const logEntry = document.createElement("div");
+            logEntry.className = "log-entry";
+            if (isError) {
+                logEntry.classList.add("log-error");
                 console.error(message);
             }
+            logEntry.textContent = `[${new Date().toLocaleTimeString()}] ${typeof message === "object" ? JSON.stringify(message) : message}`;
+            logContainer.appendChild(logEntry);
+            logContainer.scrollTop = logContainer.scrollHeight;
+        }
 
-            async function initializeAvatar() {
-                if (typeof AgoraRTC === 'undefined') {
-                    displayErrorOnPage("AgoraRTC SDK could not be loaded. Please check your internet connection and script inclusions.");
-                    return;
+        function setStatus(message) {
+            addLog(message);
+            statusContainer.textContent = message;
+        }
+
+        async function createAvatarSession() {
+            setStatus("Creating avatar session...");
+            try {
+                const response = await fetch("/.netlify/functions/create-avatar-session", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ avatar_id: AKOOL_AVATAR_ID })
+                });
+                const data = await response.json();
+                if (!response.ok) {
+                    throw new Error(`Failed to create session: ${data.error || response.statusText}`);
                 }
+                addLog("Avatar session created successfully.");
+                addLog(data); 
+                akoolSessionId = data.data._id; // Assuming _id is the session_id from Akool API response
+                return data.data.credentials; // Assuming credentials are in data.data.credentials
+            } catch (error) {
+                addLog(`Error creating avatar session: ${error.message}`, true);
+                setStatus(`Error: Could not create avatar session. ${error.message}`);
+                return null;
+            }
+        }
 
-                const agoraClient = AgoraRTC.createClient({ mode: "rtc", codec: "vp8" });
+        async function initializeAgora(credentials) {
+            if (!credentials || !credentials.agora_app_id || !credentials.agora_token || !credentials.agora_channel || !credentials.agora_uid) {
+                addLog("Agora credentials missing or incomplete.", true);
+                setStatus("Error: Agora credentials missing.");
+                return false;
+            }
+            setStatus("Initializing Agora...");
+            agoraClient = AgoraRTC.createClient({ mode: "rtc", codec: "vp8" });
+
+            try {
+                const uid = await agoraClient.join(credentials.agora_app_id, credentials.agora_channel, credentials.agora_token, credentials.agora_uid);
+                addLog(`Successfully joined Agora channel with UID: ${uid}`);
+                setStatus("Avatar connected. Waiting for stream...");
 
                 agoraClient.on("user-published", async (user, mediaType) => {
-                    console.log("Agora: User published - UID:", user.uid, "MediaType:", mediaType);
-                    try {
-                        await agoraClient.subscribe(user, mediaType);
-                        console.log("Agora: Subscribed to remote user:", user.uid);
-                        if (mediaType === "video") {
-                            while (videoContainer.firstChild) {
-                                videoContainer.removeChild(videoContainer.firstChild);
-                            }
-                            const videoPlayerElement = document.createElement("div");
-                            videoPlayerElement.id = `video-player-${user.uid}`;
-                            videoPlayerElement.style.width = "100%";
-                            videoPlayerElement.style.height = "100%";
-                            videoContainer.appendChild(videoPlayerElement);
-                            user.videoTrack.play(videoPlayerElement.id);
-                            console.log("Playing remote video stream.");
-                        }
-                        if (mediaType === "audio") {
-                            user.audioTrack.play();
-                            console.log("Playing remote audio stream.");
-                        }
-                    } catch (e) {
-                        console.error("Error subscribing to or playing remote stream:", e);
-                        displayErrorOnPage("Error handling remote stream. Check console.");
+                    addLog(`Remote user ${user.uid} published: ${mediaType}`);
+                    await agoraClient.subscribe(user, mediaType);
+                    if (mediaType === "video") {
+                        remoteUser = user;
+                        const remoteVideoTrack = user.videoTrack;
+                        const playerContainer = document.getElementById("avatar-container");
+                        playerContainer.innerHTML = ""; // Clear previous content
+                        remoteVideoTrack.play(playerContainer);
+                        addLog("Avatar video stream playing.");
+                        setStatus("Avatar is live!");
+                        // Now that avatar is streaming, make it speak
+                        triggerGreeting(); 
+                    }
+                    if (mediaType === "audio") {
+                        const remoteAudioTrack = user.audioTrack;
+                        remoteAudioTrack.play();
+                        addLog("Avatar audio stream playing.");
                     }
                 });
 
                 agoraClient.on("user-unpublished", (user, mediaType) => {
-                    console.log("Agora: User unpublished - UID:", user.uid, "MediaType:", mediaType);
-                    const playerElement = document.getElementById(`video-player-${user.uid}`);
-                    if (playerElement) {
-                        videoContainer.removeChild(playerElement);
+                    addLog(`Remote user ${user.uid} unpublished: ${mediaType}`);
+                    if (remoteUser && remoteUser.uid === user.uid && mediaType === "video") {
+                        document.getElementById("avatar-container").innerHTML = "Stream ended.";
+                        setStatus("Avatar stream ended.");
                     }
                 });
-                
-                agoraClient.on("connection-state-change", (curState, prevState, reason) => {
-                    console.log("Agora connection state change: " + curState + ", " + prevState + ", " + reason);
-                    if (curState === "DISCONNECTED" || curState === "FAILED") {
-                        displayErrorOnPage("Disconnected from Agora. Please check your connection or try again.");
-                    }
-                });
-
-                try {
-                    console.log("Attempting to create Akool session...");
-                    const sessionResponse = await fetch(AKOOL_SESSION_CREATE_URL, {
-                        method: "POST",
-                        headers: {
-                            "Authorization": `Bearer ${AKOOL_API_TOKEN}`,
-                            "Content-Type": "application/json"
-                        },
-                        body: JSON.stringify({ avatar_id: AVATAR_ID })
-                    });
-
-                    if (!sessionResponse.ok) {
-                        const errorText = await sessionResponse.text();
-                        console.error("Akool API request failed:", sessionResponse.status, errorText);
-                        displayErrorOnPage(`Failed to create Akool session. Status: ${sessionResponse.status}. ${errorText}`);
-                        return;
-                    }
-
-                    const sessionData = await sessionResponse.json();
-
-                    if (sessionData.code !== 1000 || !sessionData.data || !sessionData.data.credentials) {
-                        console.error("Error creating Akool session:", sessionData.msg || "Unknown error from Akool API", sessionData);
-                        displayErrorOnPage("Error creating Akool session: " + (sessionData.msg || "Unknown Akool API error. Please check API token and Avatar ID."));
-                        return;
-                    }
-
-                    const agoraCredentials = sessionData.data.credentials;
-                    console.log("Akool session created successfully. Agora credentials received.");
-
-                    await agoraClient.join(agoraCredentials.agora_app_id, agoraCredentials.agora_channel, agoraCredentials.agora_token, USER_ID_FOR_AGORA_JOIN);
-                    console.log("Successfully joined Agora channel as user:", USER_ID_FOR_AGORA_JOIN);
-
-                } catch (error) {
-                    console.error("Error in avatar initialization process:", error);
-                    displayErrorOnPage("An error occurred during avatar initialization. Check console.");
-                }
+                return true;
+            } catch (error) {
+                addLog(`Agora join/subscribe error: ${error.message}`, true);
+                setStatus(`Error: Could not connect to Agora. ${error.message}`);
+                return false;
             }
+        }
 
-            initializeAvatar();
-        });
+        async function pushMessageToAvatar(text) {
+            if (!akoolSessionId) {
+                addLog("Cannot push message: Akool session ID is missing.", true);
+                return;
+            }
+            setStatus(`Sending greeting: "${text}"`);
+            try {
+                const response = await fetch("/.netlify/functions/push-avatar-message", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ session_id: akoolSessionId, text: text, type: "text", interrupt: false })
+                });
+                const data = await response.json();
+                if (!response.ok) {
+                    throw new Error(`Failed to push message: ${data.error || response.statusText}`);
+                }
+                addLog("Message pushed to avatar successfully.");
+                setStatus("Greeting sent to avatar.");
+            } catch (error) {
+                addLog(`Error pushing message to avatar: ${error.message}`, true);
+                setStatus(`Error: Could not send greeting. ${error.message}`);
+            }
+        }
+
+        function triggerGreeting() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const name = urlParams.get("name");
+            const email = urlParams.get("email"); // Email and message are not used in greeting for now, but available
+            const message = urlParams.get("message");
+
+            let greetingText = "Hello there! Welcome.";
+            if (name) {
+                greetingText = `Hello, ${name}! Welcome.`;
+            }
+            // You can customize the greeting further using email or message if needed.
+            // For now, we will use the name for the greeting.
+            // The original request was to pass name, email and message to the avatar, and greet by name.
+            // The `message` from the form could be spoken after the initial greeting if desired.
+            // For example: pushMessageToAvatar(`I received your message: ${message}`);
+            
+            addLog(`Preparing to greet user: ${name || "guest"}`)
+            pushMessageToAvatar(greetingText);
+        }
+
+        async function main() {
+            addLog("Page loaded. Starting avatar integration.");
+            const agoraCredentials = await createAvatarSession();
+            if (agoraCredentials) {
+                await initializeAgora(agoraCredentials);
+                // Greeting is now triggered after video stream starts in initializeAgora
+            } else {
+                setStatus("Failed to initialize avatar. Please check logs.");
+            }
+        }
+
+        window.onload = main;
+
+        // Optional: Clean up Agora connection on page unload
+        window.onbeforeunload = async () => {
+            if (agoraClient) {
+                await agoraClient.leave();
+                addLog("Left Agora channel.");
+            }
+        };
+
     </script>
 </body>
 </html>
