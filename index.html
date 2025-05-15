@@ -27,16 +27,50 @@
         .log-entry { margin-bottom: 5px; word-break: break-all; }
         .log-error { color: red; }
         #status-messages { margin-bottom: 10px; font-weight: bold; }
+        #greeting-form {
+            margin-top: 20px;
+            padding: 15px;
+            background-color: #fff;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        #greeting-form input {
+            padding: 8px;
+            width: 70%;
+            margin-right: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+        #greeting-form button {
+            padding: 8px 16px;
+            background-color: #4caf50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        #greeting-form button:hover {
+            background-color: #45a049;
+        }
     </style>
 </head>
 <body>
     <h1>Akool Streaming Avatar</h1>
-    <p>Welcome! Your avatar should appear below and greet you shortly.</p>
+    <p>Welcome! Enter your greeting below, then the avatar will appear and greet you.</p>
 
-    <!-- 2. Container for the avatar -->
-    <div id="avatar-container"></div>
+    <!-- Form for greeting input -->
+    <div id="greeting-form">
+        <input type="text" id="greeting-text" placeholder="Enter your greeting message..." value="Hello there! Welcome.">
+        <button id="submit-greeting">Show Avatar</button>
+    </div>
 
-    <div id="status-messages">Attempting to load avatar...</div>
+    <!-- Hidden initially, will be shown after form submission -->
+    <div id="avatar-section" style="display: none;">
+        <!-- 2. Container for the avatar -->
+        <div id="avatar-container"></div>
+        <div id="status-messages">Attempting to load avatar...</div>
+    </div>
+
     <div id="logs"><strong>Logs:</strong><br></div>
 
     <script>
@@ -45,9 +79,15 @@
         let akoolSessionId = null;
         let agoraClient = null;
         let remoteUser = null;
+        let wsConnection = null;
+        let serverToConnect = null;
 
         const logContainer = document.getElementById("logs");
         const statusContainer = document.getElementById("status-messages");
+        const greetingForm = document.getElementById("greeting-form");
+        const avatarSection = document.getElementById("avatar-section");
+        const greetingTextInput = document.getElementById("greeting-text");
+        const submitGreetingButton = document.getElementById("submit-greeting");
 
         function addLog(message, isError = false) {
             const messageString = (typeof message === "object") ? JSON.stringify(message) : message;
@@ -70,17 +110,20 @@
             else statusContainer.style.color = "#333";
         }
 
-        async function createAvatarSession() {
+        async function createAvatarSession(greetingText) {
             setStatus("Creating avatar session...");
             try {
-                const response = await fetch("/.netlify/functions/create-avatar-session", {
+                const response = await fetch("/.netlify/functions/create-avatar-with-socket", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ avatar_id: AKOOL_AVATAR_ID })
+                    body: JSON.stringify({ 
+                        avatar_id: AKOOL_AVATAR_ID,
+                        greetingText: greetingText
+                    })
                 });
                 const data = await response.json();
                 
-                addLog("Raw response from /create-avatar-session:");
+                addLog("Raw response from /create-avatar-with-socket:");
                 addLog(data);
 
                 if (!response.ok) { // Checks if HTTP status is 2xx from Netlify function
@@ -96,8 +139,20 @@
                     throw new Error("Akool API response missing expected data structure (session ID or credentials).");
                 }
 
-                addLog("Avatar session created successfully via Akool API.");
+                // The Akool API has changed - we now need to use the Agora SDK directly
+                // instead of WebSocket URLs that were previously available
+                addLog("Using Agora SDK for avatar communication (current API version).");
+                
+                // Store credentials for direct Agora SDK usage
+                if (!data.data || !data.data.credentials) {
+                    throw new Error("Agora credentials missing from response.");
+                }
+                
+                // Keep session ID for reference
+                addLog("Session created successfully with ID: " + data.data._id);
                 akoolSessionId = data.data._id;
+
+                addLog("Avatar session created successfully via Akool API.");
                 return data.data.credentials;
 
             } catch (error) {
@@ -113,6 +168,16 @@
             }
             setStatus("Initializing Agora...");
             agoraClient = AgoraRTC.createClient({ mode: "rtc", codec: "vp8" });
+            
+            // Enable stream messages for avatar communication
+            try {
+                if (typeof agoraClient.enableStreamMessage === 'function') {
+                    await agoraClient.enableStreamMessage(true);
+                    addLog("Agora stream messaging enabled.");
+                }
+            } catch (e) {
+                addLog("Note: Stream messaging not available in this Agora version. Will use fallback.", true);
+            }
 
             try {
                 const uid = await agoraClient.join(credentials.agora_app_id, credentials.agora_channel, credentials.agora_token, credentials.agora_uid);
@@ -132,7 +197,13 @@
                         setStatus("Avatar is live!");
                         // Wait for a few seconds before sending the greeting
                         addLog(`Waiting ${GREETING_DELAY_MS / 1000} seconds before sending greeting...`);
-                        setTimeout(triggerGreeting, GREETING_DELAY_MS); 
+                        setTimeout(() => {
+                            if (greetingTextInput) {
+                                triggerGreeting(greetingTextInput.value.trim());
+                            } else {
+                                triggerGreeting();
+                            }
+                        }, GREETING_DELAY_MS); 
                     }
                     if (mediaType === "audio") {
                         const remoteAudioTrack = user.audioTrack;
@@ -156,59 +227,161 @@
         }
 
         async function pushMessageToAvatar(text) {
-            if (!akoolSessionId) {
-                addLog("Cannot push message: Akool session ID is missing.", true);
+            if (!akoolSessionId || !agoraClient) {
+                addLog("Cannot push message: Agora connection not initialized.", true);
                 return;
             }
             setStatus(`Sending greeting: "${text}"`);
+            
             try {
-                const response = await fetch("/.netlify/functions/push-avatar-message", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ session_id: akoolSessionId, text: text, type: "text", interrupt: false })
-                });
-                const data = await response.json();
-                addLog("Raw response from /push-avatar-message:");
-                addLog(data);
-
-                if (!response.ok) {
-                    throw new Error(`Netlify function error (HTTP ${response.status}): ${data.error || data.msg || response.statusText || "Unknown error from function"}`);
+                // For in-video speech, we need to use the proper SDK method
+                // Since the Akool API has changed, we're going to take a different approach
+                
+                // Option 1: Use the sendStreamMessage method if available
+                if (typeof agoraClient.sendStreamMessage === 'function') {
+                    const messageId = `msg-${Date.now()}`;
+                    const message = {
+                        v: 2,
+                        type: "chat",
+                        mid: messageId,
+                        idx: 0,
+                        fin: true,
+                        pld: {
+                            text: text
+                        }
+                    };
+                    
+                    addLog("Sending message through Agora stream:");
+                    addLog(message);
+                    
+                    // Convert to string before sending
+                    const messageStr = JSON.stringify(message);
+                    
+                    try {
+                        await agoraClient.sendStreamMessage(messageStr, false);
+                        addLog("Message sent via Agora stream successfully.");
+                    } catch (err) {
+                        throw new Error(`Error sending stream message: ${err.message}`);
+                    }
+                    
+                    // Setup message listener if not already
+                    if (!window.streamMessageHandlerAdded) {
+                        agoraClient.on("stream-message", (uid, data) => {
+                            try {
+                                // Convert Uint8Array to string if needed
+                                let messageData = data;
+                                if (data instanceof Uint8Array) {
+                                    messageData = new TextDecoder().decode(data);
+                                }
+                                
+                                const parsedData = JSON.parse(messageData);
+                                addLog("Received Agora stream message:");
+                                addLog(parsedData);
+                                
+                                if (parsedData.type === "chat" && parsedData.pld && parsedData.pld.text) {
+                                    addLog(`Avatar response: ${parsedData.pld.text}`);
+                                    setStatus(`Avatar says: "${parsedData.pld.text}"`);
+                                }
+                            } catch (err) {
+                                addLog("Error parsing stream message: " + err.message, true);
+                            }
+                        });
+                        window.streamMessageHandlerAdded = true;
+                    }
                 }
-                if (data.code !== 1000 && data.status !== 200) { // Akool sometimes returns status 200 for success on push
-                     throw new Error(`Akool API Error (code ${data.code || data.status}): ${data.msg || "Unknown Akool API error when pushing message"}`);
+                // Option 2: Fallback to pushing via Netlify function if needed
+                else {
+                    addLog("Direct stream messaging not available, attempting fallback...", true);
+                    
+                    // Call original push-avatar-message function as fallback
+                    const response = await fetch("/.netlify/functions/push-avatar-message", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ 
+                            session_id: akoolSessionId, 
+                            text: text, 
+                            type: "text", 
+                            interrupt: false 
+                        })
+                    });
+                    
+                    if (!response.ok) {
+                        const data = await response.json();
+                        addLog("Push response:", data);
+                        throw new Error(`HTTP Error ${response.status}: ${data.error || response.statusText}`);
+                    }
+                    addLog("Message sent through fallback method.");
                 }
-                addLog("Message pushed to avatar successfully.");
-                setStatus("Greeting sent to avatar.");
+                
+                setStatus("Greeting sent to avatar. Waiting for response...");
             } catch (error) {
+                addLog(`Error: ${error.message}`, true);
                 setStatus(`Error: Could not send greeting. ${error.message}`, true);
             }
         }
 
-        function triggerGreeting() {
+        function triggerGreeting(customText) {
             const urlParams = new URLSearchParams(window.location.search);
             const name = urlParams.get("name");
             
-            let greetingText = "Hello there! Welcome.";
-            if (name) {
+            let greetingText = customText || "Hello there! Welcome.";
+            if (name && !customText) {
                 greetingText = `Hello, ${name}! Welcome.`;
             }
             
-            addLog(`Preparing to greet user: ${name || "guest"}`)
+            addLog(`Preparing to greet user with message: "${greetingText}"`)
             pushMessageToAvatar(greetingText);
         }
 
-        async function main() {
-            addLog("Page loaded. Starting avatar integration.");
-            const agoraCredentials = await createAvatarSession();
+        async function startAvatarWithGreeting(greetingText) {
+            // Show the avatar section
+            avatarSection.style.display = "block";
+            // Hide the form
+            greetingForm.style.display = "none";
+            
+            addLog("Starting avatar with greeting: " + greetingText);
+            const agoraCredentials = await createAvatarSession(greetingText);
             if (agoraCredentials) {
-                await initializeAgora(agoraCredentials);
+                const success = await initializeAgora(agoraCredentials);
+                if (success) {
+                    // Wait for avatar to load before triggering greeting
+                    // This is now handled by the wait in initializeAgora -> user-published event
+                }
             } else {
                 // Status already set by createAvatarSession on failure
                 addLog("Avatar initialization failed because session creation or credential retrieval failed.", true);
             }
         }
 
-        window.onload = main;
+        window.onload = function() {
+            // Setup form submission
+            submitGreetingButton.addEventListener("click", function(e) {
+                e.preventDefault();
+                const greetingText = greetingTextInput.value.trim();
+                if (greetingText) {
+                    startAvatarWithGreeting(greetingText);
+                } else {
+                    addLog("Please enter a greeting message.", true);
+                }
+            });
+            
+            // Also allow submission with Enter key
+            greetingTextInput.addEventListener("keypress", function(e) {
+                if (e.key === "Enter") {
+                    e.preventDefault();
+                    submitGreetingButton.click();
+                }
+            });
+            
+            // Check for name parameter in URL and pre-fill greeting
+            const urlParams = new URLSearchParams(window.location.search);
+            const name = urlParams.get("name");
+            if (name) {
+                greetingTextInput.value = `Hello, ${name}! Welcome.`;
+            }
+            
+            addLog("Page loaded. Ready to start avatar integration.");
+        };
 
         window.onbeforeunload = async () => {
             if (agoraClient) {
