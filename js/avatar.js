@@ -1,0 +1,355 @@
+const AKOOL_AVATAR_ID = "dvp_Tristan_cloth2_1080P";
+const GREETING_DELAY_MS = 3000; // 3s before sending greeting
+const RECONNECT_ATTEMPTS = 3;
+const RECONNECT_DELAY = 2000; // 2s between reconnect attempts
+const REQUEST_TIMEOUT = 15000; // 15s API timeout
+
+// State Management
+let akoolSessionId = null;
+let agoraClient = null;
+let remoteUser = null;
+let wsConnection = null;
+let reconnectAttempts = 0;
+let isInitialized = false;
+let isConnected = false;
+
+// DOM References
+const state = {
+    avatarContainer: null,
+    loadingContainer: null,
+    avatarPlaceholder: null,
+    statusElement: null,
+    statusText: null,
+    actionButtons: null,
+    logEntries: null
+};
+
+// UI State Management
+const showLoadingState = (message) => {
+    if (state.loadingContainer) state.loadingContainer.style.display = 'flex';
+    if (state.avatarPlaceholder) state.avatarPlaceholder.style.display = 'none';
+    if (state.statusElement) {
+        state.statusElement.classList.remove('error', 'success');
+        state.statusElement.classList.add('loading');
+        state.statusText.textContent = message;
+    }
+    addLog(message, 'info');
+};
+
+const showSuccessState = (message) => {
+    if (state.loadingContainer) state.loadingContainer.style.display = 'none';
+    if (state.avatarPlaceholder) state.avatarPlaceholder.style.display = 'flex';
+    if (state.statusElement) {
+        state.statusElement.classList.remove('loading', 'error');
+        state.statusElement.classList.add('success');
+        state.statusText.textContent = message;
+    }
+    if (state.actionButtons) state.actionButtons.style.display = 'flex';
+    addLog(message, 'success');
+};
+
+const showErrorState = (message, recoverable = true) => {
+    if (state.loadingContainer) state.loadingContainer.style.display = 'none';
+    if (state.avatarPlaceholder) state.avatarPlaceholder.style.display = 'flex';
+    if (state.statusElement) {
+        state.statusElement.classList.remove('loading', 'success');
+        state.statusElement.classList.add('error');
+        state.statusText.textContent = message;
+    }
+    if (state.actionButtons) state.actionButtons.style.display = 'flex';
+    addLog(message, 'error');
+
+    if (recoverable && reconnectAttempts < RECONNECT_ATTEMPTS) {
+        setTimeout(() => {
+            reconnectAttempts++;
+            initializeAvatarGreeting(getGreetingFromUrl());
+        }, RECONNECT_DELAY);
+    }
+};
+
+// Initialize the avatar greeting functionality
+async function initializeAvatarGreeting(greetingText) {
+    try {
+        // Show loading state
+        showLoadingState("Initializing avatar session...");
+        
+        // Create avatar session
+        const credentials = await createAvatarSession(greetingText);
+        if (!credentials) {
+            throw new Error("Failed to create avatar session");
+        }
+        
+        // Initialize Agora
+        const agoraInitialized = await initializeAgora(credentials);
+        if (!agoraInitialized) {
+            throw new Error("Failed to initialize Agora");
+        }
+        
+        // The greeting will be sent automatically after the video starts playing
+        // via the user-published event handler in initializeAgora
+    } catch (error) {
+        console.error("Error initializing avatar greeting:", error);
+        showErrorState(`Error: ${error.message}`, true);
+        
+        // Show retry button
+        const retryButton = document.createElement('button');
+        retryButton.className = 'btn';
+        retryButton.innerHTML = '<i class="fas fa-sync-alt"></i> Try Again';
+        retryButton.onclick = () => window.location.reload();
+        
+        const statusContainer = document.getElementById('status-messages');
+        statusContainer.appendChild(document.createElement('br'));
+        statusContainer.appendChild(retryButton);
+    }
+}
+
+async function createAvatarSession(greetingText) {
+    showLoadingState("Creating avatar session...");
+    try {
+        const response = await fetch("/.netlify/functions/create-avatar-with-socket", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ 
+                avatar_id: AKOOL_AVATAR_ID,
+                greetingText: greetingText || "Hello! Welcome to our service."
+            })
+        });
+        
+        const data = await response.json();
+        
+        addLog("Response from create-avatar-with-socket:", data);
+
+        if (!response.ok) {
+            throw new Error(`Netlify function error (HTTP ${response.status}): ${data.error || data.msg || response.statusText || "Unknown error from function"}`);
+        }
+
+        // Akool specific success check (code 1000)
+        if (data.code !== 1000) {
+            throw new Error(`Akool API Error (code ${data.code}): ${data.msg || "Unknown Akool API error"}`);
+        }
+
+        if (!data.data || !data.data._id || !data.data.credentials) {
+            throw new Error("Akool API response missing expected data structure (session ID or credentials).");
+        }
+
+        // Store session ID for reference
+        akoolSessionId = data.data._id;
+        addLog("Avatar session created successfully with ID: " + akoolSessionId);
+        
+        return data.data.credentials;
+
+    } catch (error) {
+        console.error("Error creating avatar session:", error);
+        showErrorState(`Error: Could not create avatar session. ${error.message}`, true);
+        return null;
+    }
+}
+
+async function initializeAgora(credentials) {
+    if (!credentials || !credentials.agora_app_id || !credentials.agora_token || !credentials.agora_channel || !credentials.agora_uid) {
+        showErrorState("Error: Agora credentials missing or incomplete.", true);
+        return false;
+    }
+    
+    showLoadingState("Initializing Agora...");
+    
+    try {
+        // Create Agora client
+        agoraClient = AgoraRTC.createClient({ mode: "rtc", codec: "vp8" });
+        
+        // Enable stream messages for avatar communication
+        if (typeof agoraClient.enableStreamMessage === 'function') {
+            await agoraClient.enableStreamMessage(true);
+            addLog("Agora stream messaging enabled.");
+        }
+        
+        // Join the Agora channel
+        const uid = await agoraClient.join(
+            credentials.agora_app_id,
+            credentials.agora_channel,
+            credentials.agora_token,
+            credentials.agora_uid
+        );
+        
+        addLog(`Successfully joined Agora channel with UID: ${uid}`);
+        showLoadingState("Avatar connected. Waiting for stream...");
+        
+        // Handle remote user published event
+        agoraClient.on("user-published", async (user, mediaType) => {
+            addLog(`Remote user ${user.uid} published: ${mediaType}`);
+            
+            try {
+                await agoraClient.subscribe(user, mediaType);
+                
+                if (mediaType === "video") {
+                    remoteUser = user;
+                    const remoteVideoTrack = user.videoTrack;
+                    const playerContainer = state.avatarContainer;
+                    
+                    if (playerContainer) {
+                        playerContainer.innerHTML = ""; // Clear previous content
+                        remoteVideoTrack.play(playerContainer);
+                        addLog("Avatar video stream playing.");
+                        showSuccessState("Avatar is live! Preparing your greeting...");
+                        
+                        // Wait before sending greeting
+                        setTimeout(() => {
+                            const greetingText = getGreetingFromUrl();
+                            if (greetingText) {
+                                pushMessageToAvatar(greetingText);
+                            }
+                        }, GREETING_DELAY_MS);
+                    }
+                } else if (mediaType === "audio") {
+                    const remoteAudioTrack = user.audioTrack;
+                    remoteAudioTrack.play();
+                    addLog("Avatar audio stream playing.");
+                }
+            } catch (error) {
+                console.error("Error handling published stream:", error);
+                showErrorState(`Error: ${error.message}`, true);
+            }
+        });
+        
+        return true;
+        
+    } catch (error) {
+        console.error("Error initializing Agora:", error);
+        showErrorState(`Error initializing Agora: ${error.message}`, true);
+        return false;
+    }
+}
+
+async function pushMessageToAvatar(text) {
+    if (!akoolSessionId) {
+        showErrorState("Error: No active avatar session.", true);
+        return;
+    }
+    
+    if (!text) {
+        showErrorState("No greeting text provided.", true);
+        return;
+    }
+    
+    showLoadingState(`Sending greeting: "${text}"`);
+    
+    try {
+        // Try WebSocket first if available
+        if (wsConnection && wsConnection.readyState === WebSocket.OPEN) {
+            const message = {
+                type: "text",
+                text: text,
+                interrupt: false
+            };
+            wsConnection.send(JSON.stringify(message));
+            addLog("Message sent via WebSocket");
+        } 
+        // Fallback to HTTP if WebSocket is not available
+        else {
+            addLog("WebSocket not available, falling back to HTTP");
+            const response = await fetch("/.netlify/functions/push-avatar-message", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ 
+                    session_id: akoolSessionId, 
+                    text: text, 
+                    type: "text", 
+                    interrupt: false 
+                })
+            });
+            
+            if (!response.ok) {
+                const data = await response.json();
+                addLog("Push response:", data);
+                throw new Error(`HTTP Error ${response.status}: ${data.error || response.statusText}`);
+            }
+            
+            addLog("Message sent through fallback method.");
+        }
+        
+        showSuccessState("Greeting sent to avatar. Waiting for response...");
+    } catch (error) {
+        console.error("Error sending message to avatar:", error);
+        showErrorState(`Error: Could not send greeting. ${error.message}`, true);
+    }
+}
+
+function getGreetingFromUrl() {
+    const urlParams = new URLSearchParams(window.location.search);
+    const name = urlParams.get('name') || 'there';
+    const details = urlParams.get('details') || '';
+    
+    let greetingText = `Hello ${name}!`;
+    
+    if (details) {
+        greetingText += ` I see you're interested in ${details}.`;
+    }
+    
+    greetingText += ` Welcome to our service. How can I assist you today?`;
+    
+    return greetingText;
+}
+
+// Helper functions for UI updates
+function addLog(message, isError = false) {
+    const logEntries = state.logEntries;
+    if (!logEntries) return;
+    
+    const messageString = (typeof message === "object") ? JSON.stringify(message) : message;
+    console.log(messageString);
+    
+    const logEntry = document.createElement("div");
+    logEntry.className = 'log-entry' + (isError ? ' log-error' : '');
+    logEntry.textContent = `[${new Date().toLocaleTimeString()}] ${messageString}`;
+    
+    logEntries.appendChild(logEntry);
+    logEntries.scrollTop = logEntries.scrollHeight;
+    
+    if (isError) {
+        console.error(messageString);
+    }
+}
+
+// Initialize when the greeting page loads
+document.addEventListener('DOMContentLoaded', function() {
+    // Cache DOM elements
+    state.avatarContainer = document.getElementById('avatar-container');
+    state.loadingContainer = document.getElementById('loading-container');
+    state.avatarPlaceholder = document.getElementById('avatar-placeholder');
+    state.statusElement = document.getElementById('status-messages');
+    state.statusText = document.querySelector('.status-message-text');
+    state.actionButtons = document.getElementById('action-buttons');
+    state.logEntries = document.getElementById('log-entries');
+    
+    if (!state.avatarContainer) return;
+    
+    // Get greeting text from URL
+    const greetingText = getGreetingFromUrl();
+    const greetingElement = document.getElementById('greeting-text');
+    if (greetingElement) {
+        greetingElement.textContent = greetingText;
+    }
+    
+    // Initialize connection
+    initializeAvatarGreeting(greetingText);
+    
+    // Handle tab visibility changes
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible' && !isConnected) {
+            addLog('Regaining visibility - attempting reconnect...');
+            initializeAvatarGreeting(greetingText);
+        }
+    });
+});
+
+// Clean up on page unload
+window.addEventListener('beforeunload', function() {
+    if (agoraClient) {
+        agoraClient.leave();
+        addLog("Left Agora channel.");
+    }
+    
+    if (wsConnection && wsConnection.readyState === WebSocket.OPEN) {
+        wsConnection.close();
+    }
+});

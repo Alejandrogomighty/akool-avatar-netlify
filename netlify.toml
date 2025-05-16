@@ -1,2 +1,23 @@
+[build]
+  command = "npm install"
+  publish = "."
+  functions = "netlify/functions"
+
 [functions]
   directory = "netlify/functions"
+  node_bundler = "esbuild"
+
+[build.environment]
+  NODE_VERSION = "18"
+
+[context.production]
+  AKOOL_CLIENT_ID = "N/uZYSRNdjZwgps7i8iEzg=="
+  AKOOL_CLIENT_SECRET = "bnFrXv1SqoX392wiM5vAdsOQVNjsHUbi"
+
+[context.deploy-preview]
+  AKOOL_CLIENT_ID = "N/uZYSRNdjZwgps7i8iEzg=="
+  AKOOL_CLIENT_SECRET = "bnFrXv1SqoX392wiM5vAdsOQVNjsHUbi"
+
+[context.branch-deploy]
+  AKOOL_CLIENT_ID = "N/uZYSRNdjZwgps7i8iEzg=="
+  AKOOL_CLIENT_SECRET = "bnFrXv1SqoX392wiM5vAdsOQVNjsHUbi"

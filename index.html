@@ -3,111 +3,402 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Akool Streaming Avatar</title>
-    <!-- 1. Include Agora Web SDK (ensure this is the correct/latest version recommended by Akool/Agora) -->
+    <title>Meet Your Personal Avatar | Get Started</title>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <script src="https://download.agora.io/sdk/release/AgoraRTC_N.js"></script>
     <style>
-        body { font-family: sans-serif; margin: 20px; background-color: #f4f4f4; color: #333; }
-        #avatar-container {
-            width: 400px;
-            height: 300px;
-            border: 1px solid #ccc;
-            margin-bottom: 20px;
-            background-color: #000;
+        :root {
+            --primary-color: #4a6cf7;
+            --primary-dark: #3a56d4;
+            --text-color: #2d3748;
+            --light-bg: #f8fafc;
+            --card-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
         }
-        #logs { 
-            margin-top: 20px; 
-            padding: 10px; 
-            border: 1px solid #eee; 
-            background-color: #fff; 
-            max-height: 200px; 
-            overflow-y: auto; 
-            font-size: 0.9em; 
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
         }
-        .log-entry { margin-bottom: 5px; word-break: break-all; }
-        .log-error { color: red; }
-        #status-messages { margin-bottom: 10px; font-weight: bold; }
-        #greeting-form {
-            margin-top: 20px;
-            padding: 15px;
-            background-color: #fff;
-            border: 1px solid #ddd;
-            border-radius: 4px;
+        
+        body {
+            font-family: 'Poppins', sans-serif;
+            background: var(--light-bg);
+            color: var(--text-color);
+            line-height: 1.6;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
         }
-        #greeting-form input {
-            padding: 8px;
-            width: 70%;
-            margin-right: 10px;
-            border: 1px solid #ccc;
-            border-radius: 4px;
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem;
+            width: 100%;
         }
-        #greeting-form button {
-            padding: 8px 16px;
-            background-color: #4caf50;
+        
+        header {
+            background: white;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            padding: 1rem 0;
+        }
+        
+        .header-content {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .logo {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--primary-color);
+            text-decoration: none;
+        }
+        
+        .hero {
+            text-align: center;
+            padding: 4rem 0 2rem;
+        }
+        
+        .hero h1 {
+            font-size: 2.5rem;
+            margin-bottom: 1rem;
+            color: #1a202c;
+        }
+        
+        .hero p {
+            font-size: 1.2rem;
+            color: #4a5568;
+            max-width: 700px;
+            margin: 0 auto 2rem;
+        }
+        
+        .form-container {
+            max-width: 600px;
+            margin: 0 auto 3rem;
+        }
+        
+        .form-card {
+            background: white;
+            border-radius: 16px;
+            box-shadow: var(--card-shadow);
+            padding: 2.5rem;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .form-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 6px;
+            background: linear-gradient(90deg, #4a6cf7, #6b46c1);
+        }
+        
+        .form-group {
+            margin-bottom: 1.5rem;
+        }
+        
+        .form-group label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-weight: 500;
+            color: #4a5568;
+        }
+        
+        .form-group input,
+        .form-group textarea,
+        .form-group select {
+            width: 100%;
+            padding: 0.75rem 1rem;
+            border: 2px solid #e2e8f0;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-family: 'Poppins', sans-serif;
+            transition: all 0.3s ease;
+        }
+        
+        .form-group input:focus,
+        .form-group textarea:focus,
+        .form-group select:focus {
+            outline: none;
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 3px rgba(74, 108, 247, 0.1);
+        }
+        
+        .form-group textarea {
+            min-height: 120px;
+            resize: vertical;
+        }
+        
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            background: var(--primary-color);
             color: white;
             border: none;
-            border-radius: 4px;
+            padding: 0.875rem 2rem;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-weight: 500;
             cursor: pointer;
+            transition: all 0.3s ease;
+            width: 100%;
+            text-decoration: none;
         }
-        #greeting-form button:hover {
-            background-color: #45a049;
+        
+        .btn:hover {
+            background: var(--primary-dark);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(74, 108, 247, 0.2);
+        }
+        
+        .btn:disabled {
+            background: #cbd5e0;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+        
+        .btn i {
+            margin-right: 8px;
+        }
+        
+        .features {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 2rem;
+            margin: 3rem 0;
+        }
+        
+        .feature {
+            background: white;
+            padding: 1.5rem;
+            border-radius: 12px;
+            box-shadow: var(--card-shadow);
+            text-align: center;
+            transition: transform 0.3s ease;
+        }
+        
+        .feature:hover {
+            transform: translateY(-5px);
+        }
+        
+        .feature i {
+            font-size: 2rem;
+            color: var(--primary-color);
+            margin-bottom: 1rem;
+        }
+        
+        .feature h3 {
+            margin-bottom: 0.5rem;
+            color: #1a202c;
+        }
+        
+        .feature p {
+            color: #718096;
+            font-size: 0.95rem;
+        }
+        
+        footer {
+            background: white;
+            padding: 2rem 0;
+            margin-top: auto;
+            text-align: center;
+            color: #718096;
+            font-size: 0.9rem;
+        }
+        
+        @media (max-width: 768px) {
+            .container {
+                padding: 1rem;
+            }
+            
+            .hero {
+                padding: 2rem 0 1rem;
+            }
+            
+            .hero h1 {
+                font-size: 2rem;
+            }
+            
+            .form-card {
+                padding: 1.5rem;
+            }
+            
+            .features {
+                grid-template-columns: 1fr;
+            }
+        }
+        
+        @media (max-width: 480px) {
+            .header-content {
+                flex-direction: column;
+                gap: 1rem;
+                text-align: center;
+            }
+            
+            .hero h1 {
+                font-size: 1.75rem;
+            }
+            
+            .hero p {
+                font-size: 1rem;
+            }
         }
     </style>
 </head>
 <body>
-    <h1>Akool Streaming Avatar</h1>
-    <p>Welcome! Enter your greeting below, then the avatar will appear and greet you.</p>
-
-    <!-- Form for greeting input -->
-    <div id="greeting-form">
-        <input type="text" id="greeting-text" placeholder="Enter your greeting message..." value="Hello there! Welcome.">
-        <button id="submit-greeting">Show Avatar</button>
-    </div>
-
-    <!-- Hidden initially, will be shown after form submission -->
-    <div id="avatar-section" style="display: none;">
-        <!-- 2. Container for the avatar -->
-        <div id="avatar-container"></div>
-        <div id="status-messages">Attempting to load avatar...</div>
-    </div>
-
-    <div id="logs"><strong>Logs:</strong><br></div>
+    <header>
+        <div class="container header-content">
+            <a href="index.html" class="logo">Avatar Greeter</a>
+            <a href="greeting.html" class="btn" style="background: transparent; color: var(--primary-color); border: 2px solid var(--primary-color);">
+                <i class="fas fa-robot"></i> See Demo
+            </a>
+        </div>
+    </header>
+    
+    <main class="container">
+        <section class="hero">
+            <h1>Meet Your Personal AI Avatar</h1>
+            <p>Experience the future of digital interaction with our AI-powered avatar. Share some details about yourself and receive a personalized greeting.</p>
+        </section>
+        
+        <div class="features">
+            <div class="feature">
+                <i class="fas fa-user-astronaut"></i>
+                <h3>Personalized Experience</h3>
+                <p>Get greeted by name and enjoy a customized interaction based on your interests.</p>
+            </div>
+            <div class="feature">
+                <i class="fas fa-robot"></i>
+                <h3>AI-Powered</h3>
+                <p>Our advanced AI creates natural and engaging conversations.</p>
+            </div>
+            <div class="feature">
+                <i class="fas fa-mobile-alt"></i>
+                <h3>Fully Responsive</h3>
+                <p>Works perfectly on all your devices, from desktop to mobile.</p>
+            </div>
+        </div>
+        
+        <div class="form-container">
+            <div class="form-card">
+                <h2 style="text-align: center; margin-bottom: 1.5rem; color: #1a202c;">Get Started</h2>
+                <form id="greeting-form">
+                    <div class="form-group">
+                        <label for="name">Your Name *</label>
+                        <input type="text" id="name" placeholder="Enter your name" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="email">Email Address *</label>
+                        <input type="email" id="email" placeholder="Enter your email" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="details">Tell us about yourself (optional)</label>
+                        <textarea id="details" placeholder="Share your interests, what brings you here, or anything you'd like the avatar to know"></textarea>
+                    </div>
+                    <button type="submit" id="submit-greeting" class="btn">
+                        <i class="fas fa-robot"></i> Meet Your Avatar
+                    </button>
+                </form>
+            </div>
+        </div>
+    </main>
+    
+    <footer>
+        <div class="container">
+            <p>© 2025 Avatar Greeter. All rights reserved.</p>
+        </div>
+    </footer>
 
     <script>
-        const AKOOL_AVATAR_ID = "dvp_Tristan_cloth2_1080P"; // User provided Avatar ID
-        const GREETING_DELAY_MS = 3000; // 3 seconds delay before sending greeting
-        let akoolSessionId = null;
-        let agoraClient = null;
-        let remoteUser = null;
-        let wsConnection = null;
-        let serverToConnect = null;
-
-        const logContainer = document.getElementById("logs");
-        const statusContainer = document.getElementById("status-messages");
-        const greetingForm = document.getElementById("greeting-form");
-        const avatarSection = document.getElementById("avatar-section");
-        const greetingTextInput = document.getElementById("greeting-text");
-        const submitGreetingButton = document.getElementById("submit-greeting");
-
-        function addLog(message, isError = false) {
-            const messageString = (typeof message === "object") ? JSON.stringify(message) : message;
-            console.log(messageString);
-            const logEntry = document.createElement("div");
-            logEntry.className = "log-entry";
-            if (isError) {
-                logEntry.classList.add("log-error");
-                console.error(messageString);
+        // Form submission handler
+        document.addEventListener('DOMContentLoaded', function() {
+            const greetingForm = document.getElementById('greeting-form');
+            const submitButton = document.getElementById('submit-greeting');
+            
+            greetingForm.addEventListener('submit', function(e) {
+                e.preventDefault();
+                
+                // Get form values
+                const name = document.getElementById('name').value.trim();
+                const email = document.getElementById('email').value.trim();
+                const details = document.getElementById('details').value.trim();
+                
+                // Basic validation
+                if (!name) {
+                    showError('Please enter your name.');
+                    return;
+                }
+                if (!email) {
+                    showError('Please enter your email address.');
+                    return;
+                }
+                if (!isValidEmail(email)) {
+                    showError('Please enter a valid email address.');
+                    return;
+                }
+                
+                // Disable button and show loading state
+                submitButton.disabled = true;
+                submitButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Preparing your avatar...';
+                
+                // Redirect to greeting page with form data as URL parameters
+                const params = new URLSearchParams();
+                params.append('name', name);
+                params.append('email', email);
+                if (details) params.append('details', details);
+                
+                // Add a small delay to show the loading state
+                setTimeout(() => {
+                    window.location.href = `greeting.html?${params.toString()}`;
+                }, 500);
+            });
+            
+            // Email validation helper
+            function isValidEmail(email) {
+                const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+                return re.test(email);
             }
-            logEntry.textContent = `[${new Date().toLocaleTimeString()}] ${messageString}`;
-            logContainer.appendChild(logEntry);
-            logContainer.scrollTop = logContainer.scrollHeight;
-        }
-
-        function setStatus(message, isError = false) {
-            addLog(message, isError);
-            statusContainer.textContent = message;
-            if(isError) statusContainer.style.color = "red";
-            else statusContainer.style.color = "#333";
+            
+            // Show error message
+            function showError(message) {
+                // Remove any existing error messages
+                const existingError = document.querySelector('.error-message');
+                if (existingError) {
+                    existingError.remove();
+                }
+                
+                // Create and show new error message
+                const errorElement = document.createElement('div');
+                errorElement.className = 'error-message';
+                errorElement.style.color = '#e53e3e';
+                errorElement.style.marginTop = '1rem';
+                errorElement.style.padding = '0.75rem 1rem';
+                errorElement.style.backgroundColor = '#fff5f5';
+                errorElement.style.borderRadius = '8px';
+                errorElement.style.border = '1px solid #fed7d7';
+                errorElement.innerHTML = `<i class="fas fa-exclamation-circle"></i> ${message}`;
+                
+                // Insert after the form
+                greetingForm.parentNode.insertBefore(errorElement, greetingForm.nextSibling);
+                
+                // Scroll to error
+                errorElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+        });
+        
+        // Function to get URL parameter
+        function getUrlParameter(name) {
+            const urlParams = new URLSearchParams(window.location.search);
+            return urlParams.get(name);
         }
 
         async function createAvatarSession(greetingText) {
@@ -321,12 +612,9 @@
         }
 
         function triggerGreeting(customText) {
-            const urlParams = new URLSearchParams(window.location.search);
-            const name = urlParams.get("name");
-            
             let greetingText = customText || "Hello there! Welcome.";
-            if (name && !customText) {
-                greetingText = `Hello, ${name}! Welcome.`;
+            if (customText) {
+                greetingText = customText;
             }
             
             addLog(`Preparing to greet user with message: "${greetingText}"`)
@@ -334,66 +622,92 @@
         }
 
         async function startAvatarWithGreeting(greetingText) {
-            // Show the avatar section
-            avatarSection.style.display = "block";
-            // Hide the form
-            greetingForm.style.display = "none";
-            
             addLog("Starting avatar with greeting: " + greetingText);
-            const agoraCredentials = await createAvatarSession(greetingText);
-            if (agoraCredentials) {
-                const success = await initializeAgora(agoraCredentials);
-                if (success) {
-                    // Wait for avatar to load before triggering greeting
-                    // This is now handled by the wait in initializeAgora -> user-published event
+            try {
+                const agoraCredentials = await createAvatarSession(greetingText);
+                if (agoraCredentials) {
+                    const agoraInitialized = await initializeAgora(agoraCredentials);
+                    if (!agoraInitialized) {
+                        throw new Error("Failed to initialize Agora");
+                    }
+                    // The greeting will be sent automatically after the video starts playing
+                    // via the user-published event handler in initializeAgora
                 }
-            } else {
-                // Status already set by createAvatarSession on failure
-                addLog("Avatar initialization failed because session creation or credential retrieval failed.", true);
+            } catch (error) {
+                setStatus(`Error: ${error.message}`, true);
+                // Re-enable the form if there was an error
+                greetingForm.style.display = "block";
+                avatarSection.style.display = "none";
+                const submitButton = greetingForm.querySelector("button[type='submit']");
+                submitButton.disabled = false;
+                submitButton.textContent = "Try Again";
             }
         }
 
+        // Form submission handler
+        greetingForm.addEventListener("submit", async (e) => {
+            e.preventDefault();
+            
+            // Get form values
+            const name = document.getElementById('name').value.trim();
+            const email = document.getElementById('email').value.trim();
+            const details = document.getElementById('details').value.trim();
+            
+            // Basic validation
+            if (!name) {
+                setStatus("Please enter your name.", true);
+                return;
+            }
+            if (!email) {
+                setStatus("Please enter your email address.", true);
+                return;
+            }
+            
+            // Create a personalized greeting
+            let greetingText = `Hello ${name}!`;
+            if (details) {
+                greetingText += ` I see you're interested in ${details}.`;
+            }
+            greetingText += ` Welcome to our service. How can I assist you today?`;
+            
+            // Disable form and show loading state
+            const submitButton = greetingForm.querySelector("button[type='submit']");
+            submitButton.disabled = true;
+            submitButton.textContent = "Preparing your avatar...";
+            
+            // Show the avatar section and hide the form
+            avatarSection.style.display = "block";
+            greetingForm.style.display = "none";
+            
+            // Start the avatar with the personalized greeting
+            await startAvatarWithGreeting(greetingText);
+        });
+        
+        // Check for name parameter in URL and pre-fill name field if present
         window.onload = function() {
-            // Setup form submission
-            submitGreetingButton.addEventListener("click", function(e) {
-                e.preventDefault();
-                const greetingText = greetingTextInput.value.trim();
-                if (greetingText) {
-                    startAvatarWithGreeting(greetingText);
-                } else {
-                    addLog("Please enter a greeting message.", true);
-                }
-            });
-            
-            // Also allow submission with Enter key
-            greetingTextInput.addEventListener("keypress", function(e) {
-                if (e.key === "Enter") {
-                    e.preventDefault();
-                    submitGreetingButton.click();
-                }
-            });
-            
-            // Check for name parameter in URL and pre-fill greeting
             const urlParams = new URLSearchParams(window.location.search);
             const name = urlParams.get("name");
             if (name) {
-                greetingTextInput.value = `Hello, ${name}! Welcome.`;
+                document.getElementById('name').value = name;
             }
-            
             addLog("Page loaded. Ready to start avatar integration.");
         };
 
-        window.onbeforeunload = async () => {
-            if (agoraClient) {
-                try {
-                    await agoraClient.leave();
-                    addLog("Left Agora channel.");
-                } catch (e) {
-                    addLog("Error leaving Agora channel: " + e.message, true);
-                }
+        window.onbeforeunload = function() {
+            if (akoolSessionId) {
+                // In a real app, you might want to clean up the session
+                addLog("Cleaning up before page unload...");
+                // Note: In a real implementation, you might want to notify the server
+                // to clean up resources associated with this session
             }
         };
 
+    </script>
+    <script>
+        // Initialize the page when the DOM is fully loaded
+        document.addEventListener('DOMContentLoaded', function() {
+            // Any additional initialization code can go here
+        });
     </script>
 </body>
 </html>

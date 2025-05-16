@@ -1,11 +1,13 @@
+const fetch = require('node-fetch');
+
 exports.handler = async function(event, context) {
     if (event.httpMethod !== "POST") {
         return { statusCode: 405, body: "Method Not Allowed" };
     }
 
     const { session_id, text, type = "text", interrupt = false } = JSON.parse(event.body);
-    const AKOOL_CLIENT_ID = process.env.AKOOL_CLIENT_ID;
-    const AKOOL_CLIENT_SECRET = process.env.AKOOL_CLIENT_SECRET;
+    const AKOOL_CLIENT_ID = process.env.AKOOL_CLIENT_ID || 'N/uZYSRNdjZwgps7i8iEzg==';
+    const AKOOL_CLIENT_SECRET = process.env.AKOOL_CLIENT_SECRET || 'bnFrXv1SqoX392wiM5vAdsOQVNjsHUbi';
 
     if (!AKOOL_CLIENT_ID || !AKOOL_CLIENT_SECRET) {
         console.error("Akool Client ID or Client Secret environment variables are not configured.");
