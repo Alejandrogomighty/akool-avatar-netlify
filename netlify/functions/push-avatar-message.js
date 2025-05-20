@@ -1,8 +1,9 @@
 const fetch = require('node-fetch');
+const corsHeaders = { 'Access-Control-Allow-Origin': '*' };
 
 exports.handler = async function(event, context) {
     if (event.httpMethod !== "POST") {
-        return { statusCode: 405, body: "Method Not Allowed" };
+        return { statusCode: 405, headers: corsHeaders, body: "Method Not Allowed" };
     }
 
     const { session_id, text, type = "text", interrupt = false } = JSON.parse(event.body);
@@ -11,11 +12,11 @@ exports.handler = async function(event, context) {
 
     if (!AKOOL_CLIENT_ID || !AKOOL_CLIENT_SECRET) {
         console.error("Akool Client ID or Client Secret environment variables are not configured.");
-        return { statusCode: 500, body: JSON.stringify({ error: "Akool client credentials are not configured." }) };
+        return { statusCode: 500, headers: corsHeaders, body: JSON.stringify({ error: "Akool client credentials are not configured." }) };
     }
 
     if (!session_id || !text) {
-        return { statusCode: 400, body: JSON.stringify({ error: "session_id and text are required." }) };
+        return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: "session_id and text are required." }) };
     }
 
     let accessToken = null;
@@ -32,13 +33,13 @@ exports.handler = async function(event, context) {
         // Corrected token extraction: check for tokenData.token directly
         if (!tokenResponse.ok || !tokenData.token) { 
             console.error("Failed to get Akool access token for push message. Response:", JSON.stringify(tokenData));
-            return { statusCode: tokenResponse.status, body: JSON.stringify({ error: "Failed to obtain Akool access token for push message.", details: tokenData }) };
+            return { statusCode: tokenResponse.status, headers: corsHeaders, body: JSON.stringify({ error: "Failed to obtain Akool access token for push message.", details: tokenData }) };
         }
         accessToken = tokenData.token; // Corrected: use tokenData.token
         console.log("Successfully obtained Akool access token for push message.");
     } catch (error) {
         console.error("Error obtaining Akool access token for push message:", error.toString());
-        return { statusCode: 500, body: JSON.stringify({ error: "Error obtaining Akool access token for push message.", details: error.message }) };
+        return { statusCode: 500, headers: corsHeaders, body: JSON.stringify({ error: "Error obtaining Akool access token for push message.", details: error.message }) };
     }
 
     try {
@@ -57,18 +58,19 @@ exports.handler = async function(event, context) {
 
         if (!response.ok) {
             console.error("Akool API Error (push-message):", JSON.stringify(data));
-            return { statusCode: response.status, body: JSON.stringify(data) };
+            return { statusCode: response.status, headers: corsHeaders, body: JSON.stringify(data) };
         }
         
         return {
             statusCode: 200,
-            headers: { "Content-Type": "application/json" },
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
             body: JSON.stringify(data)
         };
     } catch (error) {
         console.error("Error pushing message to Akool session with new token:", error.toString());
         return {
             statusCode: 500,
+            headers: corsHeaders,
             body: JSON.stringify({ error: "Failed to push message to Akool session with new token.", details: error.message })
         };
     }

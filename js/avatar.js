@@ -1,4 +1,8 @@
 const AKOOL_AVATAR_ID = "dvp_Tristan_cloth2_1080P";
+const CSS_VARS = {
+    primaryColor: '#4a6cf7',
+    primaryDark: '#3a56d4'
+};
 const GREETING_DELAY_MS = 3000; // 3s before sending greeting
 const RECONNECT_ATTEMPTS = 3;
 const RECONNECT_DELAY = 2000; // 2s between reconnect attempts
@@ -33,6 +37,8 @@ const showLoadingState = (message) => {
         state.statusElement.classList.add('loading');
         state.statusText.textContent = message;
     }
+    // Set listening indicator based on message content
+    setListeningIndicator(message.toLowerCase().includes('listening'));
     addLog(message, 'info');
 };
 
@@ -310,6 +316,20 @@ function addLog(message, isError = false) {
     }
 }
 
+// Control listening indicator visibility
+function setListeningIndicator(isListening) {
+    const indicator = document.querySelector('.listening-indicator');
+    if (!indicator) return;
+    
+    if (isListening) {
+        indicator.classList.add('active');
+        indicator.classList.remove('hidden');
+    } else {
+        indicator.classList.add('hidden');
+        indicator.classList.remove('active');
+    }
+}
+
 // Initialize when the greeting page loads
 document.addEventListener('DOMContentLoaded', function() {
     // Cache DOM elements
@@ -332,32 +352,75 @@ document.addEventListener('DOMContentLoaded', function() {
         // Web Speech API support
         if ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window) {
             const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-            const recognition = new SpeechRecognition();
-            recognition.continuous = true;
-            recognition.lang = 'en-US';
-            recognition.interimResults = false;
-            recognition.maxAlternatives = 1;
+            try {
+                const recognition = new SpeechRecognition();
+                recognition.continuous = true;
+                recognition.lang = 'en-US';
+                recognition.interimResults = false;
+                recognition.maxAlternatives = 1;
 
-            // Start recognition immediately for a natural conversation
-            recognition.start();
-            showLoadingState("Listening...");
+                // Start recognition immediately for a natural conversation
+                recognition.start();
+                showLoadingState("Listening for your voice...");
+                setListeningIndicator(true);
 
-            // Restart on end to keep listening continuously
-            recognition.onend = () => recognition.start();
+                // Restart on end to keep listening continuously
+                recognition.onend = () => recognition.start();
 
-            recognition.onresult = (event) => {
-                const transcript = event.results[0][0].transcript.trim();
-                addLog("Recognized speech: " + transcript);
-                showLoadingState("You said: " + transcript);
-                pushMessageToAvatar(transcript);
-            };
+                recognition.onresult = (event) => {
+                    const transcript = event.results[0][0].transcript.trim();
+                    addLog("Recognized speech: " + transcript);
+                    setListeningIndicator(false);
+                    showLoadingState("You said: " + transcript);
+                    pushMessageToAvatar(transcript);
+                };
 
-            recognition.onerror = (event) => {
-                showErrorState("Speech recognition error: " + event.error);
-            };
+                // Only show errors that aren't "no-speech" (which is a normal timeout)
+                recognition.onerror = (event) => {
+                    // Only show errors that aren't "no-speech" (which is a normal timeout)
+                    if (event.error !== 'no-speech') {
+                        // Log but don't display to user for technical errors
+                        if (event.error === 'network' || event.error === 'aborted') {
+                            addLog("Speech recognition issue: " + event.error, true);
+                            // Restart recognition after network errors
+                            setTimeout(() => recognition.start(), 1000);
+                        } else {
+                            // Show other errors to user
+                            showErrorState("Speech recognition error: " + event.error, true);
+                        }
+                    } else {
+                        // For no-speech, just log it and continue listening
+                        addLog("No speech detected, continuing to listen...");
+                        
+                        // Visual feedback that we're still listening
+                        const statusText = document.querySelector('.status-message-text');
+                        if (statusText) {
+                            statusText.textContent = "Listening...";
+                            
+                            // Briefly flash the status to indicate active listening
+                            statusText.style.opacity = "0.7";
+                            setTimeout(() => {
+                                statusText.style.opacity = "1";
+                            }, 500);
+                        }
+                    }
+                };
 
-            // Hide manual start button since recognition is auto-started
-            speakBtn.style.display = 'none';
+                // Hide manual start button since recognition is auto-started
+                speakBtn.style.display = 'none';
+            } catch (error) {
+                addLog(`Speech recognition initialization error: ${error.message}`, true);
+                // Show the manual button as fallback if auto-start fails
+                speakBtn.addEventListener('click', () => {
+                    try {
+                        const recognition = new SpeechRecognition();
+                        recognition.start();
+                        showLoadingState("Listening...");
+                    } catch (err) {
+                        showErrorState("Could not start speech recognition: " + err.message);
+                    }
+                });
+            }
         } else {
             // Hide the button if not supported
             speakBtn.style.display = 'none';
@@ -387,11 +450,20 @@ document.addEventListener('DOMContentLoaded', function() {
 
 // Clean up on page unload
 window.addEventListener('beforeunload', function() {
+    if (akoolSessionId) {
+        // Notify backend to end the Akool session
+        const payload = JSON.stringify({ session_id: akoolSessionId });
+        if (navigator.sendBeacon) {
+            navigator.sendBeacon('/.netlify/functions/end-avatar-session', payload);
+        } else {
+            fetch('/.netlify/functions/end-avatar-session', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: payload });
+        }
+        addLog("Requested session end for " + akoolSessionId);
+    }
     if (agoraClient) {
         agoraClient.leave();
         addLog("Left Agora channel.");
     }
-    
     if (wsConnection && wsConnection.readyState === WebSocket.OPEN) {
         wsConnection.close();
     }
