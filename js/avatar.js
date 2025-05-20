@@ -321,6 +321,49 @@ document.addEventListener('DOMContentLoaded', function() {
     state.actionButtons = document.getElementById('action-buttons');
     state.logEntries = document.getElementById('log-entries');
     
+    // Add voice input button for interactive speech
+    if (state.actionButtons) {
+        const speakBtn = document.createElement('button');
+        speakBtn.id = 'speak-button';
+        speakBtn.className = 'btn';
+        speakBtn.innerHTML = '<i class="fas fa-microphone"></i> Speak';
+        state.actionButtons.appendChild(speakBtn);
+
+        // Web Speech API support
+        if ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window) {
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            const recognition = new SpeechRecognition();
+            recognition.continuous = true;
+            recognition.lang = 'en-US';
+            recognition.interimResults = false;
+            recognition.maxAlternatives = 1;
+
+            // Start recognition immediately for a natural conversation
+            recognition.start();
+            showLoadingState("Listening...");
+
+            // Restart on end to keep listening continuously
+            recognition.onend = () => recognition.start();
+
+            recognition.onresult = (event) => {
+                const transcript = event.results[0][0].transcript.trim();
+                addLog("Recognized speech: " + transcript);
+                showLoadingState("You said: " + transcript);
+                pushMessageToAvatar(transcript);
+            };
+
+            recognition.onerror = (event) => {
+                showErrorState("Speech recognition error: " + event.error);
+            };
+
+            // Hide manual start button since recognition is auto-started
+            speakBtn.style.display = 'none';
+        } else {
+            // Hide the button if not supported
+            speakBtn.style.display = 'none';
+        }
+    }
+    
     if (!state.avatarContainer) return;
     
     // Get greeting text from URL
