@@ -252,6 +252,41 @@
                 font-size: 1rem;
             }
         }
+        
+        /* Loading Animation */
+        .loading-spinner {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(255, 255, 255, 0.8);
+            z-index: 9999;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+        }
+        
+        .spinner {
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            border: 6px solid #f3f3f3;
+            border-top: 6px solid var(--primary-color);
+            animation: spin 1s linear infinite;
+        }
+        
+        .loading-text {
+            margin-top: 15px;
+            font-weight: 500;
+            color: var(--primary-color);
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
     </style>
 </head>
 <body>
@@ -269,6 +304,15 @@
                         <input type="email" id="email" placeholder="Enter your email" required>
                     </div>
                     <div class="form-group">
+                        <label for="avatar">Choose Your Avatar *</label>
+                        <select id="avatar" name="avatar" required>
+                            <option value="dvp_Tristan_cloth2_1080P" selected>Tristan (Default)</option>
+                            <option value="dvp_Emma_cloth2_1080P">Emma</option>
+                            <option value="dvp_Sarah_cloth2_1080P">Sarah</option>
+                            <option value="dvp_Michael_cloth2_1080P">Michael</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
                         <label for="details">Tell us about yourself (optional)</label>
                         <textarea id="details" placeholder="Share your interests, what brings you here, or anything you'd like the avatar to know"></textarea>
                     </div>
@@ -279,6 +323,11 @@
             </div>
         </div>
     </main>
+
+    <div class="loading-spinner" id="loading-spinner">
+        <div class="spinner"></div>
+        <p class="loading-text">Preparing your avatar experience...</p>
+    </div>
 
     <script>
         // Form submission handler
@@ -312,10 +361,17 @@
                 submitButton.disabled = true;
                 submitButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Preparing your avatar...';
                 
+                // Show loading spinner
+                document.getElementById('loading-spinner').style.display = 'flex';
+                
+                // Get the selected avatar
+                const avatarId = document.getElementById('avatar').value;
+                
                 // Redirect to greeting page with form data as URL parameters
                 const params = new URLSearchParams();
                 params.append('name', name);
                 params.append('email', email);
+                params.append('avatar_id', avatarId);
                 if (details) params.append('details', details);
                 
                 // Add a small delay to show the loading state
@@ -640,6 +696,9 @@
             // Show the avatar section and hide the form
             avatarSection.style.display = "block";
             greetingForm.style.display = "none";
+            
+            // Show loading spinner
+            document.getElementById('loading-spinner').style.display = 'flex';
             
             // Start the avatar with the personalized greeting
             await startAvatarWithGreeting(greetingText);

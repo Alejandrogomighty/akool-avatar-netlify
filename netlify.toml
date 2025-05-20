@@ -1,5 +1,5 @@
 [build]
-  command = "npm install"
+  command = "npm run build"
   publish = "."
   functions = "netlify/functions"
 
@@ -24,3 +24,24 @@
 
 [dev]
   port = 8888
+  publish = "."
+  functions = "netlify/functions"
+  targetPort = 8888
+
+[[redirects]]
+  from = "/.netlify/functions/*"
+  to = "/.netlify/functions/:splat"
+  status = 200
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+# Development environment variables 
+[context.dev.environment]
+  NODE_ENV = "development"
+  
+# Production environment variables
+[context.production.environment]
+  NODE_ENV = "production"

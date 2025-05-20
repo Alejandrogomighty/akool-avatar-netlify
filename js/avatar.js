@@ -1,8 +1,26 @@
-const AKOOL_AVATAR_ID = "dvp_Tristan_cloth2_1080P";
+// Replace the hard-coded avatar ID with a function to get it from URL parameters
+// const AKOOL_AVATAR_ID = "dvp_Tristan_cloth2_1080P";
+// Add default avatars object for fallback and descriptions
+const AKOOL_AVATARS = {
+    "dvp_Tristan_cloth2_1080P": { name: "Tristan", gender: "male" },
+    "dvp_Emma_cloth2_1080P": { name: "Emma", gender: "female" },
+    "dvp_Sarah_cloth2_1080P": { name: "Sarah", gender: "female" },
+    "dvp_Michael_cloth2_1080P": { name: "Michael", gender: "male" }
+};
+
+// CSS variables for styling
 const CSS_VARS = {
     primaryColor: '#4a6cf7',
     primaryDark: '#3a56d4'
 };
+
+// Get avatar ID from URL parameters with fallback to default
+function getAvatarIdFromUrl() {
+    const urlParams = new URLSearchParams(window.location.search);
+    const avatarId = urlParams.get('avatar_id');
+    return avatarId && AKOOL_AVATARS[avatarId] ? avatarId : "dvp_Tristan_cloth2_1080P";
+}
+
 const GREETING_DELAY_MS = 3000; // 3s before sending greeting
 const RECONNECT_ATTEMPTS = 3;
 const RECONNECT_DELAY = 2000; // 2s between reconnect attempts
@@ -26,6 +44,151 @@ const state = {
     statusText: null,
     actionButtons: null,
     logEntries: null
+};
+
+// Toast notification system 
+const toast = {
+    container: null,
+    queue: [],
+    timeouts: [],
+    
+    init() {
+        // Create toast container if it doesn't exist
+        if (!this.container) {
+            this.container = document.createElement('div');
+            this.container.className = 'toast-container';
+            document.body.appendChild(this.container);
+            
+            // Add styles
+            const style = document.createElement('style');
+            style.textContent = `
+                .toast-container {
+                    position: fixed;
+                    top: 20px;
+                    right: 20px;
+                    z-index: 9999;
+                    display: flex;
+                    flex-direction: column;
+                    gap: 10px;
+                    max-width: 350px;
+                }
+                .toast {
+                    padding: 12px 16px;
+                    border-radius: 8px;
+                    color: white;
+                    font-weight: 500;
+                    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                    animation: toast-in 0.3s ease forwards;
+                    opacity: 0;
+                    transform: translateY(-20px);
+                }
+                .toast-success {
+                    background-color: #10b981;
+                }
+                .toast-error {
+                    background-color: #ef4444;
+                }
+                .toast-info {
+                    background-color: ${CSS_VARS.primaryColor};
+                }
+                .toast-close {
+                    background: transparent;
+                    border: none;
+                    color: white;
+                    cursor: pointer;
+                    margin-left: 10px;
+                    opacity: 0.7;
+                    font-size: 18px;
+                }
+                .toast-close:hover {
+                    opacity: 1;
+                }
+                @keyframes toast-in {
+                    0% {
+                        opacity: 0;
+                        transform: translateY(-20px);
+                    }
+                    100% {
+                        opacity: 1;
+                        transform: translateY(0);
+                    }
+                }
+                @keyframes toast-out {
+                    0% {
+                        opacity: 1;
+                        transform: translateY(0);
+                    }
+                    100% {
+                        opacity: 0;
+                        transform: translateY(-20px);
+                    }
+                }
+            `;
+            document.head.appendChild(style);
+        }
+    },
+    
+    show(message, type = 'info', duration = 5000) {
+        this.init();
+        
+        // Create toast element
+        const toastEl = document.createElement('div');
+        toastEl.className = `toast toast-${type}`;
+        
+        // Create message
+        const msgEl = document.createElement('span');
+        msgEl.textContent = message;
+        toastEl.appendChild(msgEl);
+        
+        // Create close button
+        const closeBtn = document.createElement('button');
+        closeBtn.className = 'toast-close';
+        closeBtn.innerHTML = '&times;';
+        closeBtn.addEventListener('click', () => this.dismiss(toastEl));
+        toastEl.appendChild(closeBtn);
+        
+        // Add to container
+        this.container.appendChild(toastEl);
+        
+        // Set auto dismiss
+        const timeout = setTimeout(() => {
+            this.dismiss(toastEl);
+        }, duration);
+        
+        // Track for cleanup
+        this.queue.push(toastEl);
+        this.timeouts.push(timeout);
+        
+        return toastEl;
+    },
+    
+    dismiss(toastEl) {
+        // Animate out
+        toastEl.style.animation = 'toast-out 0.3s ease forwards';
+        
+        // Remove after animation
+        setTimeout(() => {
+            if (toastEl.parentNode) {
+                toastEl.parentNode.removeChild(toastEl);
+            }
+            
+            // Clean up tracked references
+            const index = this.queue.indexOf(toastEl);
+            if (index > -1) {
+                this.queue.splice(index, 1);
+                clearTimeout(this.timeouts[index]);
+                this.timeouts.splice(index, 1);
+            }
+        }, 300);
+    },
+    
+    // Clear all toasts
+    clear() {
+        this.queue.forEach(toast => this.dismiss(toast));
+    }
 };
 
 // UI State Management
@@ -64,8 +227,12 @@ const showErrorState = (message, recoverable = true) => {
     }
     if (state.actionButtons) state.actionButtons.style.display = 'flex';
     addLog(message, 'error');
+    
+    // Show toast notification for errors
+    toast.show(message, 'error');
 
     if (recoverable && reconnectAttempts < RECONNECT_ATTEMPTS) {
+        toast.show(`Reconnecting (${reconnectAttempts + 1}/${RECONNECT_ATTEMPTS})...`, 'info');
         setTimeout(() => {
             reconnectAttempts++;
             initializeAvatarGreeting(getGreetingFromUrl());
@@ -73,14 +240,82 @@ const showErrorState = (message, recoverable = true) => {
     }
 };
 
+// Show loading animation in avatar container
+function showAvatarLoading() {
+    if (!state.avatarContainer) return;
+    
+    // Create or update loading animation
+    let loader = state.avatarContainer.querySelector('.avatar-loader');
+    
+    if (!loader) {
+        loader = document.createElement('div');
+        loader.className = 'avatar-loader';
+        loader.innerHTML = `
+            <div class="avatar-spinner"></div>
+            <p class="avatar-loading-text">Loading avatar...</p>
+        `;
+        
+        // Add styles
+        const style = document.createElement('style');
+        style.textContent = `
+            .avatar-loader {
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                height: 100%;
+                width: 100%;
+                background-color: rgba(0, 0, 0, 0.05);
+                border-radius: 8px;
+            }
+            .avatar-spinner {
+                width: 50px;
+                height: 50px;
+                border-radius: 50%;
+                border: 4px solid rgba(74, 108, 247, 0.2);
+                border-top: 4px solid var(--primary-color, #4a6cf7);
+                animation: avatar-spin 1s linear infinite;
+            }
+            .avatar-loading-text {
+                margin-top: 12px;
+                font-weight: 500;
+                color: var(--primary-color, #4a6cf7);
+            }
+            @keyframes avatar-spin {
+                0% { transform: rotate(0deg); }
+                100% { transform: rotate(360deg); }
+            }
+        `;
+        document.head.appendChild(style);
+        
+        state.avatarContainer.innerHTML = '';
+        state.avatarContainer.appendChild(loader);
+    }
+    
+    loader.style.display = 'flex';
+}
+
+function hideAvatarLoading() {
+    if (!state.avatarContainer) return;
+    
+    const loader = state.avatarContainer.querySelector('.avatar-loader');
+    if (loader) {
+        loader.style.display = 'none';
+    }
+}
+
 // Initialize the avatar greeting functionality
 async function initializeAvatarGreeting(greetingText) {
     try {
-        // Show loading state
+        // Show loading animations
         showLoadingState("Initializing avatar session...");
+        showAvatarLoading();
+        
+        // Get avatar ID from URL
+        const avatarId = getAvatarIdFromUrl();
         
         // Create avatar session
-        const credentials = await createAvatarSession(greetingText);
+        const credentials = await createAvatarSession(greetingText, avatarId);
         if (!credentials) {
             throw new Error("Failed to create avatar session");
         }
@@ -95,6 +330,7 @@ async function initializeAvatarGreeting(greetingText) {
         // via the user-published event handler in initializeAgora
     } catch (error) {
         console.error("Error initializing avatar greeting:", error);
+        hideAvatarLoading();
         showErrorState(`Error: ${error.message}`, true);
         
         // Show retry button
@@ -109,14 +345,14 @@ async function initializeAvatarGreeting(greetingText) {
     }
 }
 
-async function createAvatarSession(greetingText) {
+async function createAvatarSession(greetingText, avatarId) {
     showLoadingState("Creating avatar session...");
     try {
         const response = await fetch("/.netlify/functions/create-avatar-with-socket", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ 
-                avatar_id: AKOOL_AVATAR_ID,
+                avatar_id: avatarId,
                 greetingText: greetingText || "Hello! Welcome to our service."
             })
         });
@@ -193,10 +429,14 @@ async function initializeAgora(credentials) {
                     const playerContainer = state.avatarContainer;
                     
                     if (playerContainer) {
+                        // Hide loading animation
+                        hideAvatarLoading();
+                        
                         playerContainer.innerHTML = ""; // Clear previous content
                         remoteVideoTrack.play(playerContainer);
                         addLog("Avatar video stream playing.");
                         showSuccessState("Avatar is live! Preparing your greeting...");
+                        toast.show("Avatar connected successfully!", "success");
                         
                         // Wait before sending greeting
                         setTimeout(() => {
@@ -284,8 +524,11 @@ function getGreetingFromUrl() {
     const urlParams = new URLSearchParams(window.location.search);
     const name = urlParams.get('name') || 'there';
     const details = urlParams.get('details') || '';
+    const avatarId = getAvatarIdFromUrl();
+    const avatarInfo = AKOOL_AVATARS[avatarId] || AKOOL_AVATARS["dvp_Tristan_cloth2_1080P"];
     
-    let greetingText = `Hello ${name}!`;
+    // Create a more personalized greeting with the avatar's name
+    let greetingText = `Hello ${name}! I'm ${avatarInfo.name}.`;
     
     if (details) {
         greetingText += ` I see you're interested in ${details}.`;
@@ -332,6 +575,9 @@ function setListeningIndicator(isListening) {
 
 // Initialize when the greeting page loads
 document.addEventListener('DOMContentLoaded', function() {
+    // Initialize toast system
+    toast.init();
+    
     // Cache DOM elements
     state.avatarContainer = document.getElementById('avatar-container');
     state.loadingContainer = document.getElementById('loading-container');
