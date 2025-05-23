@@ -4,11 +4,15 @@ const corsHeaders = { 'Access-Control-Allow-Origin': '*' };
 
 // List of allowed avatar IDs
 const ALLOWED_AVATARS = [
+    "8dBR2uAlPd1vAg7GcQzKI", // Put Bobby first to prioritize it
     "dvp_Tristan_cloth2_1080P",
     "dvp_Emma_cloth2_1080P",
     "dvp_Sarah_cloth2_1080P",
     "dvp_Michael_cloth2_1080P"
 ];
+
+// Increased timeout for API calls
+const API_TIMEOUT_MS = 15000;
 
 exports.handler = async function(event, context) {
     // Handle CORS preflight requests
@@ -38,17 +42,20 @@ exports.handler = async function(event, context) {
         const payload = JSON.parse(event.body);
         
         // Get the requested avatar ID with fallback to default
-        const requestedAvatarId = payload.avatar_id || "dvp_Tristan_cloth2_1080P";
+        const requestedAvatarId = payload.avatar_id || "8dBR2uAlPd1vAg7GcQzKI";
         
-        // Create a list of avatars to try, starting with the requested one
-        let avatarsToTry = [requestedAvatarId];
-        
-        // Add other avatars as fallbacks, but don't duplicate the requested one
-        ALLOWED_AVATARS.forEach(avatarId => {
-            if (avatarId !== requestedAvatarId) {
-                avatarsToTry.push(avatarId);
-            }
-        });
+        // Check if the requested avatar is in the allowed list
+        if (!ALLOWED_AVATARS.includes(requestedAvatarId)) {
+            return {
+                statusCode: 400,
+                headers: corsHeaders,
+                body: JSON.stringify({
+                    code: 1003,
+                    msg: 'Invalid avatar ID requested',
+                    error: 'The requested avatar ID is not allowed'
+                })
+            };
+        }
         
         // Get greeting message from the payload
         const greetingText = payload.greetingText || "Hello! Welcome to our service.";
@@ -107,92 +114,78 @@ exports.handler = async function(event, context) {
         }
         
         // Determine session duration (shorter in development to prevent busy avatars)
-        const sessionDuration = (process.env.NODE_ENV === 'development') ? 60 : 3600;
+        const sessionDuration = (process.env.NODE_ENV === 'development') ? 60 : 1800; // Reduced from 3600 to 1800
 
-        // Try each avatar in the list until one works
-        let lastError = null;
-        let data = null;
-        
-        for (const avatarId of avatarsToTry) {
-            try {
-                console.log(`Trying to create session with avatar: ${avatarId}`);
+        // Try only the requested avatar without fallbacks
+        try {
+            console.log(`Trying to create session with avatar: ${requestedAvatarId}`);
+            
+            // Create a timeout promise
+            const timeoutPromise = new Promise((_, reject) => 
+                setTimeout(() => reject(new Error('Akool API timeout')), API_TIMEOUT_MS));
+            
+            // Create the API call promise
+            const apiCallPromise = fetch('https://openapi.akool.com/api/open/v4/liveAvatar/session/create', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${accessToken}`
+                },
+                body: JSON.stringify({
+                    avatar_id: requestedAvatarId,
+                    duration: sessionDuration
+                })
+            });
+            
+            // Race the API call against the timeout
+            const response = await Promise.race([apiCallPromise, timeoutPromise]);
+            
+            // Parse the API response
+            const data = await response.json();
+            
+            // Check for successful response from the Akool API
+            if (data.code === 1000) {
+                console.log(`Successfully created session with avatar: ${requestedAvatarId}`);
                 
-                const response = await fetch('https://openapi.akool.com/api/open/v4/liveAvatar/session/create', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${accessToken}` // Use the fetched token
-                    },
-                    body: JSON.stringify({
-                        avatar_id: avatarId,
-                        duration: sessionDuration // session duration in seconds
-                    })
-                });
+                // Store the greeting message with the session for later use
+                data.data.greetingText = greetingText;
                 
-                // Parse the API response
-                data = await response.json();
-                
-                // Check for successful response from the Akool API
-                if (data.code === 1000) {
-                    console.log(`Successfully created session with avatar: ${avatarId}`);
-                    
-                    // If the avatar we used is different from what was requested, inform the client
-                    if (avatarId !== requestedAvatarId) {
-                        data.fallback_used = true;
-                        data.original_avatar_id = requestedAvatarId;
-                        data.msg = `Requested avatar was busy. Using ${avatarId} instead.`;
-                    }
-                    
-                    // Store the greeting message with the session for later use
-                    data.data.greetingText = greetingText;
-                    
-                    // Return the session data to the client
-                    return {
-                        statusCode: 200,
-                        headers: corsHeaders,
-                        body: JSON.stringify(data)
-                    };
-                }
-                
-                // If the avatar is busy (code 1218), try the next one
-                if (data.code === 1218) {
-                    console.log(`Avatar ${avatarId} is busy, trying next option...`);
-                    lastError = data;
-                    continue;
-                }
-                
-                // For any other error, return it immediately
-                console.error('Akool API error:', data);
+                // Return the session data to the client
                 return {
-                    statusCode: 502,
+                    statusCode: 200,
                     headers: corsHeaders,
-                    body: JSON.stringify({
-                        code: data.code,
-                        msg: data.msg || 'Error from the Akool API',
-                        error: 'Failed to create avatar session with Akool'
-                    })
-                };
-            } catch (error) {
-                console.error(`Error trying avatar ${avatarId}:`, error);
-                lastError = { 
-                    code: 1500, 
-                    msg: error.message || 'Unknown error' 
+                    body: JSON.stringify(data)
                 };
             }
+            
+            // If the avatar is busy or any other error, return the exact error to the client
+            console.error('Akool API error:', data);
+            return {
+                statusCode: data.code === 1218 ? 503 : 502, // 503 Service Unavailable for busy avatar
+                headers: corsHeaders,
+                body: JSON.stringify({
+                    code: data.code,
+                    msg: data.msg || 'Error from the Akool API',
+                    error: data.code === 1218 ? 
+                        `The avatar "${requestedAvatarId}" is currently busy. Please try again later.` : 
+                        'Failed to create avatar session with Akool',
+                    avatar_id: requestedAvatarId
+                })
+            };
+            
+        } catch (error) {
+            console.error(`Error trying avatar ${requestedAvatarId}:`, error);
+            return {
+                statusCode: 500,
+                headers: corsHeaders,
+                body: JSON.stringify({ 
+                    code: 1500, 
+                    msg: error.message || 'Unknown error',
+                    avatar_id: requestedAvatarId
+                })
+            };
         }
         
-        // If we reach here, all avatars were busy or failed
-        console.error('All avatars are busy or unavailable:', lastError);
-        return {
-            statusCode: 502,
-            headers: corsHeaders,
-            body: JSON.stringify({
-                code: lastError?.code || 1218,
-                msg: lastError?.msg || 'All avatars are currently busy. Please try again later.',
-                error: 'All avatars are currently busy',
-                tried_avatars: avatarsToTry
-            })
-        };
     } catch (error) {
         console.error('Error creating avatar session:', error);
         return {

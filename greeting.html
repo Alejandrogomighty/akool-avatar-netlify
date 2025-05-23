@@ -320,9 +320,9 @@
   </header>
 
   <main class="container">
-    <h2 id="greeting-text">Preparing your personalized avatar...</h2>
-    <div id="loading-container">Initializing avatar session...</div>
-    <div id="avatar-placeholder">Waiting for avatar video...</div>
+    <h2 id="greeting-text" style="display: none;">Connecting...</h2>
+    <div id="loading-container" style="display: none;"></div>
+    <div id="avatar-placeholder" style="display: none;"></div>
     <div id="avatar-container"></div>
     <div id="status-messages"><span class="status-message-text"></span>
      <div class="listening-indicator">
@@ -349,10 +349,7 @@
       const urlParams = new URLSearchParams(window.location.search);
       const name = urlParams.get('name');
       
-      // Update greeting text with name if provided
-      if (name) {
-        document.getElementById('greeting-text').textContent = `Hello, ${name}! Your avatar is loading...`;
-      }
+      // Don't update greeting text with name anymore
       
       // Initialize the avatar greeting
       const greetingText = getGreetingFromUrl(); // This function is in avatar.js
